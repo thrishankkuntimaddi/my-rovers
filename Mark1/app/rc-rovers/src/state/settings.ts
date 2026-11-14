@@ -2,6 +2,9 @@ import { createStore } from './store';
 import { DEFAULT_HOST, type DriveMode } from '../rover/protocol';
 
 export type ControlLayout = 'dual' | 'joystick';
+export type SteerSource = 'touch' | 'tilt';
+export type HudView = 'gauge' | 'map';
+export type VoiceLang = 'en-US' | 'en-GB' | 'en-IN';
 
 export interface Settings {
   defaultMode: DriveMode;
@@ -15,12 +18,23 @@ export interface Settings {
   haptics: boolean;
   keepAwake: boolean;
   host: string;
+  steerSource: SteerSource;
+  tiltRange: number;    // degrees of tilt for full steering
+  tiltZero: number;     // calibrated neutral angle
+  speakReplies: boolean;
+  voiceLang: VoiceLang;
+  uiSounds: boolean;
+  engineSound: boolean;
+  hudView: HudView;
+  novaTips: boolean;
 }
 
 const KEY = 'rcr-settings';
 export const DEFAULT_SETTINGS: Settings = {
   defaultMode: 'cruise', maxPower: 100, deadzone: 5, expo: 30, invertThr: false, invertStr: false,
   trim: 0, layout: 'dual', haptics: true, keepAwake: true, host: DEFAULT_HOST,
+  steerSource: 'touch', tiltRange: 28, tiltZero: 0, speakReplies: true, voiceLang: 'en-US',
+  uiSounds: true, engineSound: false, hudView: 'gauge', novaTips: true,
 };
 
 function load(): Settings {

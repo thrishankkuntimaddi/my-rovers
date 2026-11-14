@@ -1,6 +1,6 @@
 # MARK 1 — Tablet-Controlled Rock Crawler
 
-> **Model:** MARK 1 · **Series:** [My Rovers](../README.md) · **Status:** 🟡 In development: RC-Rovers app v1.0 built (demo + basic mode); hardware at Phase 1
+> **Model:** MARK 1 · **Series:** [My Rovers](../README.md) · **Status:** 🟡 In development: RC-Rovers app v2.0 (Nova co-pilot, voice, missions, academy); hardware at Phase 1
 > **Goal:** Drive a 4WD rock crawler from a Xiaomi Pad 5 running **RC-Rovers**, a premium Liquid Glass tablet app, over the ESP32's own Wi-Fi.
 
 MARK 1 is the first rover in the **My Rovers** series. It takes an off-the-shelf toy rock crawler, removes its stock radio board, and gives it a new brain: an **ESP32** that creates its own Wi-Fi hotspot and drives the motors through an **L298N** motor driver. The driver uses an Android tablet app built with an Apple-style **Liquid Glass** interface.
@@ -104,7 +104,7 @@ Each phase ends with a **test checklist**. Don't move on until every box is tick
 | **2** | Motor bench test | L298N + one motor at a time, wheels off the ground, ESP32 on USB. Direction + speed work. | ⬜ |
 | **3** | Drive control | Both channels, WebSocket control, ramping, drive modes, arm/disarm, E-stop, 300 ms failsafe | ⬜ |
 | **4** | Power system | Battery pack → fuse → switch → L298N + buck 5 V → ESP32. Battery voltage sensing. **Untethered.** | ⬜ |
-| **5** | RC-Rovers app | Android app (Capacitor) with Liquid Glass UI, landscape drive screen, connect flow | ✅ v1.0: [`app/rc-rovers/`](app/rc-rovers/README.md) |
+| **5** | RC-Rovers app | Android app (Capacitor) with Liquid Glass UI, landscape drive screen, connect flow | ✅ v2.0: [`app/rc-rovers/`](app/rc-rovers/README.md) |
 | **6** | Telemetry & polish | Battery %, runtime estimate, RSSI, trims, settings saved on the ESP32, OTA firmware updates | ⬜ |
 | **7** | Integration & release | Everything mounted in the chassis, field tested, docs + video, **MARK 1 v1.0** published | ⬜ |
 

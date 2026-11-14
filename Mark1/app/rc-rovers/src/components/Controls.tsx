@@ -6,6 +6,9 @@ import { input, toast } from '../state/ui';
 import { haptic } from '../lib/native';
 import { MODES, type DriveMode } from '../rover/protocol';
 import { Icon } from './Icon';
+import { manualOverride } from '../missions/missions';
+import { useStore } from '../state/store';
+import { tilt, calibrateTilt } from '../input/sources';
 
 const clamp = (v: number, lo = -100, hi = 100) => Math.max(lo, Math.min(hi, v));
 
@@ -67,6 +70,7 @@ export function AxisControl({ axis, armed, label, hints }: { axis: 'thr' | 'str'
     active.current = e.pointerId;
     track.current!.setPointerCapture(e.pointerId);
     track.current!.classList.add('is-active');
+    manualOverride();
     nagIfLocked(armed);
     haptic('light');
     onMove(e);
@@ -136,6 +140,7 @@ export function Joystick({ armed }: { armed: boolean }) {
     active.current = e.pointerId;
     base.current!.setPointerCapture(e.pointerId);
     base.current!.classList.add('is-active');
+    manualOverride();
     nagIfLocked(armed);
     haptic('light');
     onMove(e);
@@ -184,6 +189,7 @@ export function DPad({ armed }: { armed: boolean }) {
     if (d.k === 'c') return;
     pid.current = e.pointerId;
     e.currentTarget.setPointerCapture(e.pointerId);
+    manualOverride();
     nagIfLocked(armed);
     haptic('light');
     setHeld(d.k);
@@ -314,5 +320,21 @@ export function EStop({ onStop, disabled }: { onStop(): void; disabled: boolean 
       onPointerDown={(e) => { e.preventDefault(); if (!disabled) onStop(); }}>
       <Icon name="stop" size={22} /><span>STOP</span>
     </button>
+  );
+}
+
+/* ── Tilt steering read-out: a horizon that follows the device ─── */
+export function TiltPad() {
+  const t = useStore(tilt);
+  return (
+    <div className="tiltpad">
+      <div className="axis-head"><span className="lg-label">Tilt steering</span><span className="axis-value">{t.value === 0 ? '0' : `${t.value > 0 ? 'R' : 'L'}${Math.abs(Math.round(t.value))}`}</span></div>
+      <div className="tilt-dial">
+        <div className="tilt-horizon" style={{ transform: `rotate(${-t.roll}deg)` }} />
+        <div className="tilt-bar"><div className="tilt-fill" style={{ transform: `scaleX(${t.value / 100})` }} /></div>
+        <span className="tilt-deg">{t.roll >= 0 ? '+' : ''}{t.roll.toFixed(0)}°</span>
+      </div>
+      <button className="lg-btn tilt-cal" onClick={calibrateTilt}><Icon name="tilt" size={16} />Centre here</button>
+    </div>
   );
 }

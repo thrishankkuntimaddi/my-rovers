@@ -2,6 +2,7 @@ import { Sheet, Sparkline } from '../components/Common';
 import { useStore } from '../state/store';
 import { rover } from '../rover/controller';
 import { modeSpec } from '../rover/protocol';
+import { logs } from '../state/logs';
 
 const fmtUp = (s: number) => `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 const KIND = { ws: 'Wi-Fi · WebSocket', http: 'Wi-Fi · basic (Firmware V1)', demo: 'Demo (simulated)' } as const;
@@ -22,6 +23,8 @@ function Ring({ pct }: { pct: number | null }) {
 export function TelemetrySheet({ open, onClose }: { open: boolean; onClose(): void }) {
   const r = useStore(rover);
   const { tel, history } = r;
+  const { items } = useStore(logs);
+  const events = items.filter((l) => l.cat === 'link' || l.cat === 'drive' || l.cat === 'mission').slice(0, 60);
   const recent = history.slice(-120);
   return (
     <Sheet open={open} onClose={onClose} title="Telemetry" wide>
@@ -60,8 +63,8 @@ export function TelemetrySheet({ open, onClose }: { open: boolean; onClose(): vo
         <div className="lg-tile tel-card tel-log">
           <span className="lg-label">Event log</span>
           <div className="log">
-            {r.log.length === 0 && <p className="lg-text-3">Nothing yet.</p>}
-            {r.log.map((l) => (
+            {events.length === 0 && <p className="lg-text-3">Nothing yet.</p>}
+            {events.map((l) => (
               <div key={l.id} className={`log-row is-${l.tone}`}>
                 <time>{new Date(l.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time>
                 <span>{l.text}</span>

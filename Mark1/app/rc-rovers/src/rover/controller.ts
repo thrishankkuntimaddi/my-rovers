@@ -4,13 +4,15 @@ import { createStore } from '../state/store';
 import { settings } from '../state/settings';
 import { input, toast } from '../state/ui';
 import { haptic } from '../lib/native';
+import { bus } from '../state/bus';
+import { endTrip, logEvent, startTrip, updateTrip, type LogCat } from '../state/logs';
 import { APP_VERSION, EMPTY_TEL, type AppMsg, type DriveMode, type LinkKind, type LinkStatus, type RoverEvent, type RoverInfo, type RoverMsg, type Telemetry } from './protocol';
 import { openDemo, openHttp, openWs, probeRover, type Transport, type TransportHooks } from './transports';
 
 export type StepId = 'wifi' | 'reach' | 'handshake';
 export type StepState = 'pending' | 'active' | 'ok' | 'fail';
 
-export interface LogEntry { id: number; at: number; text: string; tone: 'neutral' | 'good' | 'warn' | 'bad' }
+type Tone = 'neutral' | 'good' | 'warn' | 'bad';
 export interface Sample { t: number; v: number | null; pct: number | null; rssi: number | null; lat: number | null }
 
 export interface RoverState {
@@ -21,13 +23,12 @@ export interface RoverState {
   latency: number | null;
   steps: Record<StepId, StepState>;
   error: string | null;
-  log: LogEntry[];
   history: Sample[];
 }
 
 const initial: RoverState = {
   status: 'idle', kind: null, info: null, tel: EMPTY_TEL, latency: null,
-  steps: { wifi: 'pending', reach: 'pending', handshake: 'pending' }, error: null, log: [], history: [],
+  steps: { wifi: 'pending', reach: 'pending', handshake: 'pending' }, error: null, history: [],
 };
 
 export const rover = createStore<RoverState>(initial);
@@ -40,15 +41,16 @@ let pingTimer: ReturnType<typeof setInterval> | null = null;
 let sampleTimer: ReturnType<typeof setInterval> | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let driving = false;
-let logId = 1;
+let sampleCount = 0;
+let firstPct: number | null = null;
 let attempt = 0;          // bumps on every connect/disconnect so stale async work is ignored
 
-function log(text: string, tone: LogEntry['tone'] = 'neutral', withToast = false) {
-  rover.set((s) => ({ log: [{ id: logId++, at: Date.now(), text, tone }, ...s.log].slice(0, 120) }));
+function log(text: string, tone: Tone = 'neutral', withToast = false, cat: LogCat = 'link') {
+  logEvent(cat, text, tone);
   if (withToast) toast(text, tone);
 }
 
-const EVENT_TEXT: Record<RoverEvent, [string, LogEntry['tone']]> = {
+const EVENT_TEXT: Record<RoverEvent, [string, Tone]> = {
   armed: ['Ignition on: motors armed', 'good'],
   disarmed: ['Ignition off', 'neutral'],
   estop: ['Emergency stop', 'bad'],
@@ -71,7 +73,9 @@ const hooks: TransportHooks = {
       case 'evt': {
         const [text, tone] = EVENT_TEXT[m.e];
         const loud = m.e !== 'armed' && m.e !== 'disarmed';
-        log(text, tone, loud);
+        log(text, tone, loud, 'drive');
+        bus.emit('rover', { e: m.e });
+        if (m.e === 'estop') updateTrip((t) => ({ estops: t.estops + 1 }));
         if (m.e === 'estop' || m.e === 'cutoff') haptic('error');
         else if (m.e === 'failsafe' || m.e === 'lowbat') haptic('warning');
         return;
@@ -93,7 +97,7 @@ settings.subscribe(() => { if (rover.get().status === 'connected') pushConfig();
 function startLoops() {
   stopLoops();
   driveTimer = setInterval(() => {
-    if (!driving || rover.get().status !== 'connected') return;
+    if (rover.get().status !== 'connected') return;   // stream always (keeps the rover's failsafe fed); sticks are 0 when idle
     const { thr, str } = input.get();
     send({ t: 'drive', thr: Math.round(thr), str: Math.round(str), seq: seq++ });
   }, 33);
@@ -105,6 +109,9 @@ function startLoops() {
   sampleTimer = setInterval(() => {
     const { tel, latency } = rover.get();
     rover.set((s) => ({ history: [...s.history, { t: Date.now(), v: tel.vbat, pct: tel.pct, rssi: tel.rssi, lat: latency }].slice(-600) }));
+    if (++sampleCount % 10 === 0) logEvent('telemetry', `Battery ${tel.pct ?? '—'}% · ${tel.vbat?.toFixed(2) ?? '—'} V · signal ${tel.rssi ?? '—'} dBm · ${latency ?? '—'} ms`, 'neutral', { vbat: tel.vbat, pct: tel.pct, rssi: tel.rssi, latency });
+    if (tel.armed) updateTrip((t) => ({ seconds: t.seconds + 1, batteryUsed: firstPct != null && tel.pct != null ? Math.max(0, firstPct - tel.pct) : t.batteryUsed }));
+    if (firstPct == null && tel.pct != null) firstPct = tel.pct;
   }, 1000);
 }
 function stopLoops() {
@@ -121,6 +128,8 @@ function begin(t: Transport, kind: LinkKind) {
   transport = t;
   lastRx = performance.now();
   rover.set({ status: 'connected', kind, error: null, latency: null });
+  bus.emit('connected', { kind });
+  if (!rover.get().history.length) { firstPct = null; startTrip(kind); }
   send({ t: 'hello', app: 'RC-Rovers', ver: APP_VERSION });
   pushConfig();
   send({ t: 'mode', m: settings.get().defaultMode });
@@ -134,7 +143,7 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export async function connect(demo = false): Promise<boolean> {
   disconnect(true);
   const my = ++attempt;
-  rover.set({ ...initial, status: 'connecting', log: rover.get().log, steps: { wifi: 'active', reach: 'pending', handshake: 'pending' } });
+  rover.set({ ...initial, status: 'connecting', steps: { wifi: 'active', reach: 'pending', handshake: 'pending' } });
 
   if (demo) {
     await wait(260); if (my !== attempt) return false; step('wifi', 'ok'); step('reach', 'active');
@@ -170,6 +179,7 @@ function lost(reason: string) {
   transport?.close(); transport = null;
   rover.set((s) => ({ status: 'lost', tel: { ...s.tel, armed: false, thr: 0, str: 0 }, latency: null }));
   log(`Connection lost (${reason})`, 'bad', true);
+  bus.emit('lost', { reason });
   haptic('error');
   const my = attempt;
   const kind = rover.get().kind;
@@ -197,6 +207,7 @@ export function disconnect(silent = false) {
   if (transport) { transport.send({ t: 'disarm' }); transport.close(); transport = null; }
   const was = rover.get().status;
   rover.set({ status: 'idle', kind: null, info: null, tel: EMPTY_TEL, latency: null, error: null, history: [] });
+  if (was !== 'idle') { endTrip(); bus.emit('disconnected', { reason: silent ? 'replaced' : 'user' }); }
   if (!silent && was !== 'idle') log('Disconnected');
 }
 
@@ -205,12 +216,18 @@ export function cancelConnect() {
 }
 
 export const control = {
+  /** Leaving the cockpit zeroes the sticks; missions and Nova keep working from any tab. */
   setDriving(on: boolean) {
     driving = on;
-    if (!on) { input.set({ thr: 0, str: 0 }); send({ t: 'disarm' }); }
+    if (!on) input.set({ thr: 0, str: 0 });
   },
+  get inCockpit() { return driving; },
   arm() { send({ t: 'arm' }); },
   disarm() { send({ t: 'disarm' }); },
   estop() { input.set({ thr: 0, str: 0 }); send({ t: 'estop' }); },
-  mode(m: DriveMode) { send({ t: 'mode', m }); rover.set((s) => ({ tel: { ...s.tel, mode: m } })); },
+  mode(m: DriveMode) {
+    if (rover.get().tel.mode === m) return;
+    send({ t: 'mode', m }); rover.set((s) => ({ tel: { ...s.tel, mode: m } }));
+    logEvent('drive', `Mode → ${m}`); bus.emit('mode', { m });
+  },
 };

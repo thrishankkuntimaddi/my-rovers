@@ -1,7 +1,12 @@
 import { Row, Sheet, Slider, Switch } from '../components/Common';
 import { Segmented } from '../components/Controls';
 import { useStore } from '../state/store';
-import { DEFAULT_SETTINGS, settings, type ControlLayout } from '../state/settings';
+import { DEFAULT_SETTINGS, settings, type ControlLayout, type SteerSource, type VoiceLang } from '../state/settings';
+import { calibrateTilt, pad } from '../input/sources';
+import { speak } from '../ai/voice';
+import { exportLogs } from '../state/logs';
+import { resetAcademy } from '../state/academy';
+import { toast } from '../state/ui';
 import { MODES, APP_VERSION, type DriveMode } from '../rover/protocol';
 import { disconnect, rover } from '../rover/controller';
 import type { ThemePref } from '../lib/liquid-glass';
@@ -11,6 +16,7 @@ const CHANNELS = ['Website', 'YouTube', 'LinkedIn', 'Twitter / X', 'Discord', 'R
 export function SettingsSheet({ open, onClose, theme, onTheme }: { open: boolean; onClose(): void; theme: ThemePref; onTheme(t: ThemePref): void }) {
   const s = useStore(settings);
   const r = useStore(rover);
+  const gp = useStore(pad);
   const set = settings.set;
   return (
     <Sheet open={open} onClose={onClose} title="Settings" wide>
@@ -42,9 +48,43 @@ export function SettingsSheet({ open, onClose, theme, onTheme }: { open: boolean
             <Row title="Invert steering"><Switch label="Invert steering" checked={s.invertStr} onChange={(v) => set({ invertStr: v })} /></Row>
             <Row title="Haptics"><Switch label="Haptics" checked={s.haptics} onChange={(v) => set({ haptics: v })} /></Row>
           </div>
+
+          <h3 className="section-title">Steering & controllers</h3>
+          <div className="lg-tile group">
+            <Row title="Steering" sub="Thumb slider, or tilt the device like a wheel">
+              <Segmented<SteerSource> value={s.steerSource} onChange={(v) => set({ steerSource: v })}
+                options={[{ id: 'touch', label: 'Touch' }, { id: 'tilt', label: 'Tilt' }]} />
+            </Row>
+            <Row title="Tilt range" sub="Degrees of tilt for full lock">
+              <Slider label="Tilt range" value={s.tiltRange} min={12} max={45} onChange={(v) => set({ tiltRange: v })} format={(v) => `${v}°`} />
+            </Row>
+            <Row title="Tilt centre" sub={`Neutral angle ${s.tiltZero.toFixed(1)}°`}><button className="lg-btn" onClick={calibrateTilt}>Calibrate</button></Row>
+            <Row title="Gamepad" sub={gp.connected ? gp.id : 'Pair a Bluetooth controller in Android settings'}>
+              <span className={`lg-chip${gp.connected ? ' is-green' : ''}`}>{gp.connected ? 'Connected' : 'None'}</span>
+            </Row>
+            <Row title="Gamepad buttons" sub="Sticks/triggers drive · A arm · B e-stop · X stop · Y record · LB/RB mode" />
+            <Row title="Keyboard" sub="WASD/arrows drive · Shift boost · Space stop · Esc e-stop · E ignition · 1–4 modes · R record" />
+          </div>
         </div>
 
         <div className="settings-col">
+          <h3 className="section-title">Nova & voice</h3>
+          <div className="lg-tile group">
+            <Row title="Spoken replies" sub="Nova answers out loud after voice commands"><Switch label="Spoken replies" checked={s.speakReplies} onChange={(v) => set({ speakReplies: v })} /></Row>
+            <Row title="Voice language">
+              <Segmented<VoiceLang> value={s.voiceLang} onChange={(v) => set({ voiceLang: v })}
+                options={[{ id: 'en-US', label: 'US' }, { id: 'en-GB', label: 'UK' }, { id: 'en-IN', label: 'India' }]} />
+            </Row>
+            <Row title="Proactive tips" sub="Battery, signal and safety advice"><Switch label="Tips" checked={s.novaTips} onChange={(v) => set({ novaTips: v })} /></Row>
+            <Row title="Test voice"><button className="lg-btn" onClick={() => speak('Nova online. All systems nominal.')}>Speak</button></Row>
+          </div>
+
+          <h3 className="section-title">Sound</h3>
+          <div className="lg-tile group">
+            <Row title="UI sounds" sub="Chimes for ignition, stop, missions"><Switch label="UI sounds" checked={s.uiSounds} onChange={(v) => set({ uiSounds: v })} /></Row>
+            <Row title="Engine sound" sub="Synthesised hum that follows the throttle"><Switch label="Engine sound" checked={s.engineSound} onChange={(v) => set({ engineSound: v })} /></Row>
+          </div>
+
           <h3 className="section-title">Appearance</h3>
           <div className="lg-tile group">
             <Row title="Theme">
@@ -63,6 +103,12 @@ export function SettingsSheet({ open, onClose, theme, onTheme }: { open: boolean
             <Row title="Wi-Fi" sub="MARK1_ROVER · Mark1Rover26" />
             <Row title="Connection" sub={r.status === 'idle' ? 'Not connected' : r.kind === 'demo' ? 'Demo rover' : r.status}>
               {r.status !== 'idle' && <button className="lg-btn" onClick={() => { disconnect(); onClose(); }}>Disconnect</button>}
+            </Row>
+            <Row title="Export logs" sub="JSON with events and trips">
+              <button className="lg-btn" onClick={() => exportLogs('json').then((n) => toast(`Exported ${n}`, 'good'), (e) => toast(String(e), 'bad'))}>Export</button>
+            </Row>
+            <Row title="Reset Academy" sub="XP, achievements and lessons">
+              <button className="lg-btn" onClick={() => { resetAcademy(); toast('Academy reset'); }}>Reset</button>
             </Row>
             <Row title="Reset driving settings">
               <button className="lg-btn" onClick={() => set({ ...DEFAULT_SETTINGS, host: s.host, keepAwake: s.keepAwake })}>Reset</button>
