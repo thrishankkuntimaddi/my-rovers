@@ -6,6 +6,8 @@ Each rover is a numbered **Mark**. Every Mark adds a new capability on top of th
 
 ---
 
+**📲 Get the app:** [download RC-Rovers for Android](https://github.com/thrishankkuntimaddi/my-rovers/releases/latest/download/RC-Rovers-1.0.0.apk)
+
 ## Models
 
 | Model | Folder | Theme | Status |

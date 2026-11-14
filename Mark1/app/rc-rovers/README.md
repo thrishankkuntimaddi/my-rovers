@@ -30,6 +30,12 @@ The app tries the WebSocket first and falls back to basic mode automatically. It
 
 ---
 
+## Download
+
+**[⬇ RC-Rovers 1.0.0 APK](https://github.com/thrishankkuntimaddi/my-rovers/releases/latest/download/RC-Rovers-1.0.0.apk)** · [all releases](https://github.com/thrishankkuntimaddi/my-rovers/releases)
+
+Open the link on your Android tablet or phone, install it, and tap **Try demo**.
+
 ## Run it
 
 ```bash
