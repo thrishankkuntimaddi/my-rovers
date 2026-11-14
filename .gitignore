@@ -1,0 +1,13 @@
+.DS_Store
+# Arduino / PlatformIO build output
+build/
+.pio/
+# App
+node_modules/
+dist/
+*.apk
+*.aab
+.gradle/
+local.properties
+.idea/
+.vscode/
