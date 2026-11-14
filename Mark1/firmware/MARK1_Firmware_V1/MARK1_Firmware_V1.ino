@@ -147,13 +147,23 @@ async function sendCommand(command) {
 )rawliteral";
 
 // =====================================
+// JSON HELPER (CORS open so the RC-Rovers app / any browser can call the API)
+// =====================================
+
+void sendJson(int code, const String& body) {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(code, "application/json", body);
+}
+
+// =====================================
 // COMMAND HANDLER
 // =====================================
 
 void handleCommand() {
 
   if (!server.hasArg("move")) {
-    server.send(400, "application/json", "{\"error\":\"Missing command\"}");
+    sendJson(400, "{\"error\":\"Missing command\"}");
     return;
   }
 
@@ -166,7 +176,7 @@ void handleCommand() {
       command != "right" &&
       command != "stop") {
 
-    server.send(400, "application/json", "{\"error\":\"Invalid command\"}");
+    sendJson(400, "{\"error\":\"Invalid command\"}");
     return;
   }
 
@@ -177,7 +187,7 @@ void handleCommand() {
   Serial.println(lastCommand);
 
   String response = "{\"ok\":true,\"command\":\"" + lastCommand + "\"}";
-  server.send(200, "application/json", response);
+  sendJson(200, response);
 }
 
 // =====================================
@@ -189,7 +199,7 @@ void handleStatus() {
       "{\"device\":\"MARK1\",\"status\":\"online\","
       "\"lastCommand\":\"" + lastCommand + "\"}";
 
-  server.send(200, "application/json", response);
+  sendJson(200, response);
 }
 
 // =====================================
