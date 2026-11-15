@@ -60,7 +60,7 @@ export type RoverMsg =
   | { t: 'evt'; e: RoverEvent };
 
 export const DEFAULT_HOST = '192.168.4.1';
-export const APP_VERSION = '2.1.1';
+export const APP_VERSION = '2.2.0';
 
 export const EMPTY_TEL: Telemetry = {
   armed: false, mode: 'cruise', thr: 0, str: 0, vbat: null, pct: null, rssi: null, up: 0, estMin: null, warn: [],
@@ -78,6 +78,17 @@ export function cellPct(v: number): number {
     if (v >= v2) return p2 + ((v - v2) / (v1 - v2)) * (p1 - p2);
   }
   return 0;
+}
+
+/** Inverse of cellPct: per-cell voltage for a given %. */
+export function cellV(pct: number): number {
+  const p = Math.max(0, Math.min(100, pct));
+  for (let i = 1; i < CELL_TABLE.length; i++) {
+    const [v1, p1] = CELL_TABLE[i - 1];
+    const [v2, p2] = CELL_TABLE[i];
+    if (p >= p2) return v2 + ((p - p2) / (p1 - p2)) * (v1 - v2);
+  }
+  return CELL_TABLE[CELL_TABLE.length - 1][0];
 }
 
 /** Deadzone + expo + invert + cap, shared by the simulator (real firmware does the same). */

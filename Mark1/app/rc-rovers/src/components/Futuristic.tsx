@@ -5,6 +5,7 @@ import { useStore } from '../state/store';
 import { odo } from '../state/odometry';
 import { voice, startListening, stopListening } from '../ai/voice';
 import { haptic } from '../lib/native';
+import { installUpdate, update } from '../lib/updater';
 import { Icon, type IconName } from './Icon';
 
 /* ── navigation: glass menu pill (top-left) + Drive button (top-right) ──
@@ -156,5 +157,23 @@ export function MicButton({ size = 'md', label }: { size?: 'md' | 'lg'; label?: 
       <Icon name="mic" size={size === 'lg' ? 28 : 21} />
       {label && <span className="mic-label">{v.listening ? 'Listening…' : label}</span>}
     </button>
+  );
+}
+
+/* ── update card: shown when a newer RC-Rovers is on GitHub ────── */
+export function UpdateCard({ compact }: { compact?: boolean }) {
+  const u = useStore(update);
+  if (u.state !== 'available' && u.state !== 'downloading' && u.state !== 'installing') return null;
+  const pct = Math.round(u.progress * 100);
+  return (
+    <div className={`update-card lg-tile${compact ? ' is-compact' : ''}`}>
+      <span className="update-icon"><Icon name="download" size={18} /></span>
+      <div className="update-text">
+        <b>RC-Rovers {u.latest} is ready</b>
+        <span>{u.state === 'downloading' ? `Downloading… ${pct}%` : u.state === 'installing' ? 'Tap “Update” on the Android screen. Your data is kept.' : 'Installs over this version. Missions, XP and settings are kept.'}</span>
+        {u.state === 'downloading' && <span className="update-bar"><i style={{ transform: `scaleX(${u.progress})` }} /></span>}
+      </div>
+      {u.state === 'available' && <button className="lg-btn is-primary update-btn" onClick={installUpdate}>Update</button>}
+    </div>
   );
 }

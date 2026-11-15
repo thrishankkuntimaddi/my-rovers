@@ -1,4 +1,5 @@
 import { Row, Sheet, Slider, Switch } from '../components/Common';
+import { checkForUpdate, installUpdate, update } from '../lib/updater';
 import { Segmented } from '../components/Controls';
 import { useStore } from '../state/store';
 import { DEFAULT_SETTINGS, settings, type ControlLayout, type SteerSource, type VoiceLang } from '../state/settings';
@@ -17,6 +18,7 @@ export function SettingsSheet({ open, onClose, theme, onTheme }: { open: boolean
   const s = useStore(settings);
   const r = useStore(rover);
   const gp = useStore(pad);
+  const upd = useStore(update);
   const set = settings.set;
   return (
     <Sheet open={open} onClose={onClose} title="Settings" wide>
@@ -82,7 +84,10 @@ export function SettingsSheet({ open, onClose, theme, onTheme }: { open: boolean
           <h3 className="section-title">Sound</h3>
           <div className="lg-tile group">
             <Row title="UI sounds" sub="Chimes for ignition, stop, missions"><Switch label="UI sounds" checked={s.uiSounds} onChange={(v) => set({ uiSounds: v })} /></Row>
-            <Row title="Engine sound" sub="Synthesised hum that follows the throttle"><Switch label="Engine sound" checked={s.engineSound} onChange={(v) => set({ engineSound: v })} /></Row>
+            <Row title="Motor sound" sub="Motor whine, gears, gravel and steering servo that follow the rover"><Switch label="Motor sound" checked={s.motorSound} onChange={(v) => set({ motorSound: v })} /></Row>
+            <Row title="Volume" sub="Motor and chimes">
+              <Slider label="Volume" value={s.volume} min={0} max={100} step={5} onChange={(v) => set({ volume: v })} format={(v) => `${v}%`} />
+            </Row>
           </div>
 
           <h3 className="section-title">Appearance</h3>
@@ -101,6 +106,10 @@ export function SettingsSheet({ open, onClose, theme, onTheme }: { open: boolean
                 onChange={(e) => set({ host: e.target.value })} />
             </Row>
             <Row title="Wi-Fi" sub="MARK1_ROVER · Mark1Rover26" />
+            <Row title="Camera stream" sub="Optional. ESP32-CAM: http://<ip>:81/stream · blank = auto">
+              <input className="lg-field addr cam-field" value={s.cameraUrl} placeholder="auto" spellCheck={false} inputMode="url"
+                onChange={(e) => set({ cameraUrl: e.target.value })} />
+            </Row>
             <Row title="Connection" sub={r.status === 'idle' ? 'Not connected' : r.kind === 'demo' ? 'Demo rover' : r.status}>
               {r.status !== 'idle' && <button className="lg-btn" onClick={() => { disconnect(); onClose(); }}>Disconnect</button>}
             </Row>
@@ -118,6 +127,11 @@ export function SettingsSheet({ open, onClose, theme, onTheme }: { open: boolean
           <h3 className="section-title">About</h3>
           <div className="lg-tile group">
             <Row title="RC-Rovers" sub={`Version ${APP_VERSION} · My Rovers series`} />
+            <Row title="Updates" sub={upd.state === 'checking' ? 'Checking…' : upd.state === 'available' ? `Version ${upd.latest} is available` : upd.state === 'current' ? 'You have the latest version' : upd.state === 'downloading' ? `Downloading… ${Math.round(upd.progress * 100)}%` : upd.state === 'installing' ? 'Installer opened' : upd.error ?? 'Updates install over the app; nothing is lost'}>
+              {upd.state === 'available'
+                ? <button className="lg-btn is-primary" onClick={installUpdate}>Update</button>
+                : <button className="lg-btn" disabled={upd.state === 'checking' || upd.state === 'downloading'} onClick={() => checkForUpdate(true)}>Check</button>}
+            </Row>
             <Row title="Community" sub="Links arrive with the MARK 1 launch">
               <div className="channels">{CHANNELS.map((c) => <span key={c} className="lg-chip">{c}</span>)}</div>
             </Row>

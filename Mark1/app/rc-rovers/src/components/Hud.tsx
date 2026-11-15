@@ -3,37 +3,47 @@ import { useStore } from '../state/store';
 import { input } from '../state/ui';
 import { modeSpec, shape, type DriveMode, type Telemetry } from '../rover/protocol';
 import { settings } from '../state/settings';
+import { cruise } from '../rover/controller';
 
-// 240° sweep around (110,106), r=88, from 150° (bottom-left) clockwise to 30° (bottom-right)
-const ARC = 'M 33.79 150 A 88 88 0 1 1 186.21 150';
+// 240° sweep around (110,110): 0 % at 150° (bottom-left) clockwise to 100 % at 30° (bottom-right)
+const CX = 110, CY = 110;
+const pt = (t: number, r: number) => { const a = (-210 + t * 240) * (Math.PI / 180); return [CX + r * Math.cos(a), CY + r * Math.sin(a)] as const; };
+const TICKS = 48;
 
+/** Segmented speed ring: lit segments = actual output, notch = mode cap, dot = where the stick is asking. */
 export function Gauge({ thr, mode }: { thr: number; mode: DriveMode }) {
-  const cmd = useStore(input);
+  const raw = useStore(input);
+  const cr = useStore(cruise);
+  const cmd = cr.on ? { thr: cr.thr } : raw;
   const st = useStore(settings);
   const a = Math.min(100, Math.abs(thr));
   const dir = thr > 1 ? 'FWD' : thr < -1 ? 'REV' : 'N';
-  // commanded position marker on the arc (ghost dot): 0…100 → −210°…30°
-  // where the rover is heading: stick → deadzone/expo/max power → mode cap
+  const cap = modeSpec(mode).cap;
   const cfg = { deadzone: st.deadzone, expo: st.expo, invertThr: st.invertThr, invertStr: st.invertStr, maxPct: st.maxPower };
-  const c = Math.min(100, Math.abs(shape(cmd.thr, cfg, false) * modeSpec(mode).cap / 100)) / 100;
-  const ang = (-210 + c * 240) * (Math.PI / 180);
-  const mx = 110 + 88 * Math.cos(ang), my = 106 + 88 * Math.sin(ang);
+  const c = Math.min(100, Math.abs(shape(cmd.thr, cfg, false) * cap / 100)) / 100;
+  const [gx, gy] = pt(c, 78);
+  const [n1x, n1y] = pt(cap / 100, 96), [n2x, n2y] = pt(cap / 100, 103);
+  const lit = Math.round((a / 100) * TICKS);
   return (
-    <svg className="gauge" viewBox="0 0 220 168" aria-label={`Speed ${Math.round(a)} percent ${dir}`}>
-      <path d={ARC} pathLength={100} className="gauge-track" />
-      <path d={ARC} pathLength={100} className={`gauge-val${thr < -1 ? ' is-rev' : ''}`} style={{ strokeDashoffset: 100 - a, opacity: a < 0.5 ? 0 : 1 }} />
-      {[0, 25, 50, 75, 100].map((t) => {
-        const r = (-210 + t * 2.4) * (Math.PI / 180);
-        return <line key={t} className="gauge-tick" x1={110 + 70 * Math.cos(r)} y1={106 + 70 * Math.sin(r)} x2={110 + 76 * Math.cos(r)} y2={106 + 76 * Math.sin(r)} />;
+    <svg className={`gauge${dir === 'REV' ? ' is-rev' : ''}`} viewBox="0 0 220 180" aria-label={`Speed ${Math.round(a)} percent ${dir}`}>
+      {Array.from({ length: TICKS + 1 }, (_, i) => {
+        const t = i / TICKS, major = i % 6 === 0;
+        const [x1, y1] = pt(t, major ? 82 : 85), [x2, y2] = pt(t, 92);
+        return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} className={`gauge-seg${i <= lit && a >= 0.5 ? ' is-on' : ''}${major ? ' is-major' : ''}${t * 100 > cap ? ' is-over' : ''}`} />;
       })}
-      <circle className="gauge-ghost" cx={mx} cy={my} r={5.5} style={{ opacity: c > 0.02 ? 1 : 0 }} />
-      <text x="110" y="112" className="gauge-num">{Math.round(a)}</text>
-      <text x="110" y="136" className="gauge-unit">{dir === 'N' ? 'NEUTRAL' : `% · ${dir}`}</text>
+      <circle cx={CX} cy={CY} r={70} className="gauge-ring" />
+      <circle cx={CX} cy={CY} r={64} className="gauge-ring is-faint" />
+      <line x1={n1x} y1={n1y} x2={n2x} y2={n2y} className="gauge-cap" />
+      <circle className="gauge-ghost" cx={gx} cy={gy} r={3.5} style={{ opacity: c > 0.02 ? 1 : 0 }} />
+      <text x={CX} y={CY - 30} className="gauge-dir">{dir === 'N' ? 'NEUTRAL' : dir === 'FWD' ? 'FORWARD' : 'REVERSE'}</text>
+      <text x={CX} y={CY + 14} className="gauge-num">{Math.round(a)}</text>
+      <text x={CX} y={CY + 28} className="gauge-unit">% OUTPUT</text>
+      <text x={CX} y={CY + 50} className="gauge-mode">{modeSpec(mode).label.toUpperCase()} · CAP {cap}</text>
     </svg>
   );
 }
 
-/** Top-down rover: front wheels turn with steering, treads roll with throttle. */
+/** Wireframe rover from above: front wheels steer, treads roll, dashed arc shows where it's heading. */
 export function RoverTopView({ thr, str }: { thr: number; str: number }) {
   const steer = (str / 100) * 28;
   const speed = Math.abs(thr);
@@ -41,19 +51,24 @@ export function RoverTopView({ thr, str }: { thr: number; str: number }) {
   const roll = { animationDuration: `${dur}s`, animationPlayState: dur ? 'running' : 'paused', animationDirection: thr < 0 ? 'reverse' : 'normal' } as const;
   const wheel = (x: number, y: number, front: boolean) => (
     <g className="tv-wheel" style={{ transform: `translate(${x}px, ${y}px) rotate(${front ? steer : 0}deg)` }}>
-      <rect x="-7" y="-12" width="14" height="24" rx="5" className="tv-tyre" />
-      <rect x="-7" y="-12" width="14" height="24" rx="5" className="tv-tread" style={roll} />
+      <rect x="-6" y="-11" width="12" height="22" rx="4" className="tv-tyre" />
+      <rect x="-6" y="-11" width="12" height="22" rx="4" className="tv-tread" style={roll} />
     </g>
   );
+  // projected path: arc ahead of (or behind) the front axle
+  const k = str / 100, rev = thr < -1;
+  const y0 = rev ? 116 : 24, y1 = rev ? 150 : -14;
+  const path = `M50 ${y0} Q ${50 + k * 10} ${(y0 + y1) / 2} ${50 + k * 34} ${y1}`;
   return (
-    <svg className="topview" viewBox="0 0 100 130" aria-hidden="true">
-      <line x1="50" y1="30" x2="50" y2="100" className="tv-axle" />
-      <line x1="22" y1="30" x2="78" y2="30" className="tv-axle" />
-      <line x1="22" y1="100" x2="78" y2="100" className="tv-axle" />
-      <rect x="31" y="20" width="38" height="90" rx="12" className="tv-body" />
-      <rect x="36" y="38" width="28" height="30" rx="7" className="tv-cab" />
-      <circle cx="50" cy="96" r="7" className="tv-spare" />
-      {wheel(22, 30, true)}{wheel(78, 30, true)}{wheel(22, 100, false)}{wheel(78, 100, false)}
+    <svg className="topview" viewBox="0 -18 100 172" aria-hidden="true">
+      <path d={path} className={`tv-path${speed > 2 ? ' is-moving' : ''}`} />
+      <line x1="50" y1="32" x2="50" y2="98" className="tv-axle" />
+      <line x1="20" y1="32" x2="80" y2="32" className="tv-axle" />
+      <line x1="20" y1="98" x2="80" y2="98" className="tv-axle" />
+      <rect x="32" y="20" width="36" height="90" rx="11" className="tv-body" />
+      <rect x="37" y="40" width="26" height="26" rx="6" className="tv-cab" />
+      <line x1="38" y1="22" x2="62" y2="22" className="tv-lamp" />
+      {wheel(20, 32, true)}{wheel(80, 32, true)}{wheel(20, 98, false)}{wheel(80, 98, false)}
     </svg>
   );
 }

@@ -4,7 +4,7 @@ import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { createStore } from './store';
 
-export type LogCat = 'system' | 'link' | 'drive' | 'voice' | 'nova' | 'mission' | 'academy' | 'telemetry';
+export type LogCat = 'system' | 'link' | 'drive' | 'voice' | 'nova' | 'mission' | 'academy' | 'telemetry' | 'media';
 export type LogTone = 'neutral' | 'good' | 'warn' | 'bad';
 export interface LogItem { id: number; at: number; cat: LogCat; text: string; tone: LogTone; data?: Record<string, unknown> }
 
@@ -17,7 +17,7 @@ export interface Trip {
 export const LOG_CATS: { id: LogCat; label: string }[] = [
   { id: 'link', label: 'Link' }, { id: 'drive', label: 'Drive' }, { id: 'voice', label: 'Voice' },
   { id: 'nova', label: 'Nova' }, { id: 'mission', label: 'Missions' }, { id: 'academy', label: 'Academy' },
-  { id: 'telemetry', label: 'Telemetry' }, { id: 'system', label: 'System' },
+  { id: 'telemetry', label: 'Telemetry' }, { id: 'media', label: 'Media' }, { id: 'system', label: 'System' },
 ];
 
 const LOG_KEY = 'rcr-logs';

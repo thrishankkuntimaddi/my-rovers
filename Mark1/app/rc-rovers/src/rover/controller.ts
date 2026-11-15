@@ -71,10 +71,12 @@ const hooks: TransportHooks = {
         return;
       }
       case 'evt': {
-        const [text, tone] = EVENT_TEXT[m.e];
+        const [base, tone] = EVENT_TEXT[m.e];
+        const text = m.e === 'cutoff' && rover.get().kind === 'demo' ? 'Demo battery flat: reconnect the demo to recharge' : base;
         const loud = m.e !== 'armed' && m.e !== 'disarmed';
         log(text, tone, loud, 'drive');
         bus.emit('rover', { e: m.e });
+        if (m.e === 'estop' || m.e === 'cutoff' || m.e === 'failsafe' || m.e === 'disarmed') cruiseOff();
         if (m.e === 'estop') updateTrip((t) => ({ estops: t.estops + 1 }));
         if (m.e === 'estop' || m.e === 'cutoff') haptic('error');
         else if (m.e === 'failsafe' || m.e === 'lowbat') haptic('warning');
@@ -87,6 +89,37 @@ const hooks: TransportHooks = {
 
 function send(m: AppMsg) { transport?.send(m); }
 
+/* ── cruise control ────────────────────────────────────────────────
+   Locks the throttle at the value you were driving with; steering stays free.
+   Released by any new throttle input, Stop, ignition off, a mission, or link loss. */
+export const cruise = createStore<{ on: boolean; thr: number }>({ on: false, thr: 0 });
+let cruiseWaitRelease = false;
+let lastUserThr = 0, lastUserAt = 0;
+function cruiseOff(why?: string) {
+  if (!cruise.get().on) return;
+  cruise.set({ on: false, thr: 0 });
+  if (why) toast(`Cruise off · ${why}`, 'neutral', 1600);
+}
+
+/** Things that may hold the rover still (e.g. a trial countdown). */
+const holds = new Set<() => boolean>();
+bus.on('mission:start', () => cruiseOff('mission'));
+export function addDriveHold(fn: () => boolean) { holds.add(fn); return () => { holds.delete(fn); }; }
+
+function driveOut(): { thr: number; str: number } {
+  let { thr, str } = input.get();
+  const now = performance.now();
+  if (Math.abs(thr) > 5) { lastUserThr = thr; lastUserAt = now; }
+  const c = cruise.get();
+  if (c.on) {
+    if (cruiseWaitRelease) { if (Math.abs(thr) < 3) cruiseWaitRelease = false; thr = c.thr; }
+    else if (Math.abs(thr) > 5) cruiseOff('throttle');
+    else thr = c.thr;
+  }
+  for (const h of holds) if (h()) return { thr: 0, str: 0 };
+  return { thr, str };
+}
+
 function pushConfig() {
   const s = settings.get();
   send({ t: 'cfg', deadzone: s.deadzone, expo: s.expo, invertThr: s.invertThr, invertStr: s.invertStr, maxPct: s.maxPower });
@@ -98,7 +131,7 @@ function startLoops() {
   stopLoops();
   driveTimer = setInterval(() => {
     if (rover.get().status !== 'connected') return;   // stream always (keeps the rover's failsafe fed); sticks are 0 when idle
-    const { thr, str } = input.get();
+    const { thr, str } = driveOut();
     send({ t: 'drive', thr: Math.round(thr), str: Math.round(str), seq: seq++ });
   }, 33);
   pingTimer = setInterval(() => {
@@ -175,6 +208,7 @@ export async function connect(demo = false): Promise<boolean> {
 }
 
 function lost(reason: string) {
+  cruiseOff();
   stopLoops();
   transport?.close(); transport = null;
   rover.set((s) => ({ status: 'lost', tel: { ...s.tel, armed: false, thr: 0, str: 0 }, latency: null }));
@@ -202,6 +236,7 @@ function lost(reason: string) {
 
 export function disconnect(silent = false) {
   attempt++;
+  cruiseOff();
   if (reconnectTimer) clearTimeout(reconnectTimer);
   stopLoops();
   if (transport) { transport.send({ t: 'disarm' }); transport.close(); transport = null; }
@@ -223,8 +258,23 @@ export const control = {
   },
   get inCockpit() { return driving; },
   arm() { send({ t: 'arm' }); },
-  disarm() { send({ t: 'disarm' }); },
-  estop() { input.set({ thr: 0, str: 0 }); send({ t: 'estop' }); },
+  cruiseOff,
+  disarm() { cruiseOff(); send({ t: 'disarm' }); },
+  estop() { cruiseOff(); input.set({ thr: 0, str: 0 }); send({ t: 'estop' }); },
+  /** Toggle cruise control at the current (or just-released) throttle. */
+  cruise() {
+    if (cruise.get().on) { cruiseOff('tapped'); haptic('light'); return; }
+    const r = rover.get();
+    if (r.status !== 'connected' || !r.tel.armed) { toast('Start the ignition first', 'warn', 1800); return; }
+    const cur = input.get().thr;
+    const v = Math.abs(cur) > 5 ? cur : performance.now() - lastUserAt < 1500 ? lastUserThr : 0;
+    if (!v) { toast('Drive first, then tap Cruise to hold that speed', 'neutral', 2200); return; }
+    cruiseWaitRelease = Math.abs(cur) > 3;
+    cruise.set({ on: true, thr: Math.round(v) });
+    toast(`Cruise ${v > 0 ? 'forward' : 'reverse'} · ${Math.abs(Math.round(v))}%`, 'good', 1800);
+    haptic('medium');
+    bus.emit('cruise', { thr: Math.round(v) });
+  },
   mode(m: DriveMode) {
     if (rover.get().tel.mode === m) return;
     send({ t: 'mode', m }); rover.set((s) => ({ tel: { ...s.tel, mode: m } }));

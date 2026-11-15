@@ -21,6 +21,8 @@ type SheetId = null | 'connect' | 'telemetry' | 'settings';
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('garage');
+  const [visited, setVisited] = useState<Set<Tab>>(() => new Set<Tab>(['garage']));
+  useEffect(() => { setVisited((v) => (v.has(tab) ? v : new Set(v).add(tab))); }, [tab]);
   const [driving, setDriving] = useState(false);
   const [sheet, setSheet] = useState<SheetId>(null);
   const [demo, setDemo] = useState(false);
@@ -60,20 +62,19 @@ export default function App() {
   return (
     <>
       <div className={`stage is-${driving ? 'drive' : tab}`}>
-        {driving ? (
-          <Drive onBack={() => setDriving(false)} onTelemetry={() => setSheet('telemetry')} onSettings={() => setSheet('settings')} />
-        ) : (
-          <NavCtx.Provider value={{ tab, go: setTab, drive, live, settings: () => setSheet('settings') }}>
-          <div className="tab-host" key={tab}>
-            {tab === 'garage' && <Garage onConnect={() => start(false)} onDemo={() => start(true)} onResume={() => setDriving(true)}
-              onSettings={() => setSheet('settings')} onTheme={cycleTheme} themeIcon={themeIcon} />}
-            {tab === 'missions' && <Missions onDrive={() => setDriving(true)} />}
-            {tab === 'nova' && <Nova />}
-            {tab === 'logs' && <Logs />}
-            {tab === 'academy' && <Academy onLesson={lesson} />}
+        {/* Sections stay mounted once visited and are only hidden when inactive, so switching is
+            instant and keeps scroll position, chat, editors and live checks — no "reload" flash. */}
+        <NavCtx.Provider value={{ tab, go: setTab, drive, live, settings: () => setSheet('settings') }}>
+          <div className="tab-host" hidden={driving}>
+            {visited.has('garage') && <div className="tab-pane" hidden={tab !== 'garage'}><Garage active={!driving && tab === 'garage'} onConnect={() => start(false)} onDemo={() => start(true)} onResume={() => setDriving(true)}
+              onSettings={() => setSheet('settings')} onTheme={cycleTheme} themeIcon={themeIcon} /></div>}
+            {visited.has('missions') && <div className="tab-pane" hidden={tab !== 'missions'}><Missions onDrive={() => setDriving(true)} /></div>}
+            {visited.has('nova') && <div className="tab-pane" hidden={tab !== 'nova'}><Nova /></div>}
+            {visited.has('logs') && <div className="tab-pane" hidden={tab !== 'logs'}><Logs /></div>}
+            {visited.has('academy') && <div className="tab-pane" hidden={tab !== 'academy'}><Academy onLesson={lesson} /></div>}
           </div>
-          </NavCtx.Provider>
-        )}
+        </NavCtx.Provider>
+        {driving && <Drive onBack={() => setDriving(false)} onTelemetry={() => setSheet('telemetry')} onSettings={() => setSheet('settings')} />}
       </div>
       <ConnectSheet open={sheet === 'connect'} demo={demo} onClose={() => { cancelConnect(); setSheet(null); }}
         onRetry={() => start(false)} onDemo={() => start(true)} />

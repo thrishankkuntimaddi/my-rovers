@@ -3,7 +3,7 @@ import { DEFAULT_HOST, type DriveMode } from '../rover/protocol';
 
 export type ControlLayout = 'dual' | 'joystick';
 export type SteerSource = 'touch' | 'tilt';
-export type HudView = 'gauge' | 'map';
+export type HudView = 'gauge' | 'map' | 'camera';
 export type VoiceLang = 'en-US' | 'en-GB' | 'en-IN';
 
 export interface Settings {
@@ -24,7 +24,9 @@ export interface Settings {
   speakReplies: boolean;
   voiceLang: VoiceLang;
   uiSounds: boolean;
-  engineSound: boolean;
+  motorSound: boolean;  // synthesised motor, gears, terrain and servo
+  volume: number;       // 0…100 master volume for all app sounds
+  cameraUrl: string;    // optional MJPEG/JPEG stream URL (ESP32-CAM etc.)
   hudView: HudView;
   novaTips: boolean;
 }
@@ -34,7 +36,7 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultMode: 'cruise', maxPower: 100, deadzone: 5, expo: 30, invertThr: false, invertStr: false,
   trim: 0, layout: 'dual', haptics: true, keepAwake: true, host: DEFAULT_HOST,
   steerSource: 'touch', tiltRange: 28, tiltZero: 0, speakReplies: true, voiceLang: 'en-US',
-  uiSounds: true, engineSound: false, hudView: 'gauge', novaTips: true,
+  uiSounds: true, motorSound: true, volume: 85, cameraUrl: '', hudView: 'gauge', novaTips: true,
 };
 
 function load(): Settings {

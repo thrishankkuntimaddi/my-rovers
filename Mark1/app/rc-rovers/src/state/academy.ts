@@ -15,10 +15,11 @@ export interface Counters {
   sessions: number; driveSeconds: number; voiceCmds: number; typedCmds: number; missionsRun: number; missionsDone: number;
   missionsMade: number; recordings: number; estops: number; modes: DriveMode[]; tiltSeconds: number; distance: number;
   maxSpeed: number; smoothSeconds: number; lessons: number; demoSessions: number; realSessions: number;
+  trials: number; cleanRuns: number; parBeats: number; snapshots: number; clips: number; cruiseUses: number;
 }
 interface AcademyState { xp: number; unlocked: Record<string, number>; c: Counters; lesson: string | null; lessonStep: number; lessonProgress: number }
 
-const ZERO: Counters = { sessions: 0, driveSeconds: 0, voiceCmds: 0, typedCmds: 0, missionsRun: 0, missionsDone: 0, missionsMade: 0, recordings: 0, estops: 0, modes: [], tiltSeconds: 0, distance: 0, maxSpeed: 0, smoothSeconds: 0, lessons: 0, demoSessions: 0, realSessions: 0 };
+const ZERO: Counters = { sessions: 0, driveSeconds: 0, voiceCmds: 0, typedCmds: 0, missionsRun: 0, missionsDone: 0, missionsMade: 0, recordings: 0, estops: 0, modes: [], tiltSeconds: 0, distance: 0, maxSpeed: 0, smoothSeconds: 0, lessons: 0, demoSessions: 0, realSessions: 0, trials: 0, cleanRuns: 0, parBeats: 0, snapshots: 0, clips: 0, cruiseUses: 0 };
 const KEY = 'rcr-academy';
 function load(): AcademyState {
   try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s) return { ...s, c: { ...ZERO, ...s.c }, lesson: null, lessonStep: 0, lessonProgress: 0 }; } catch { /* ignore */ }
@@ -43,6 +44,12 @@ export function levelOf(xp: number) {
 
 export interface Achievement { id: string; title: string; desc: string; xp: number; icon: string; test(c: Counters): boolean }
 export const ACHIEVEMENTS: Achievement[] = [
+  { id: 'gate-runner', title: 'Gate Runner', desc: 'Finish a time trial', xp: 40, icon: '🏁', test: (c) => c.trials >= 1 },
+  { id: 'clean-run', title: 'Clean Run', desc: 'Finish a trial without hitting anything', xp: 60, icon: '✨', test: (c) => c.cleanRuns >= 1 },
+  { id: 'under-par', title: 'Under Par', desc: 'Beat the par time on any course', xp: 80, icon: '⚡', test: (c) => c.parBeats >= 1 },
+  { id: 'shutterbug', title: 'Shutterbug', desc: 'Take a camera snapshot', xp: 15, icon: '📸', test: (c) => c.snapshots >= 1 },
+  { id: 'director', title: 'Director', desc: 'Record a camera clip', xp: 25, icon: '🎬', test: (c) => c.clips >= 1 },
+  { id: 'cruiser', title: 'Cruiser', desc: 'Use cruise control', xp: 15, icon: '🛞', test: (c) => c.cruiseUses >= 1 },
   { id: 'first-contact', title: 'First Contact', desc: 'Connect to a rover', xp: 20, icon: '🛰', test: (c) => c.sessions >= 1 },
   { id: 'real-deal', title: 'The Real Deal', desc: 'Connect to the real MARK 1', xp: 60, icon: '🔌', test: (c) => c.realSessions >= 1 },
   { id: 'first-meter', title: 'First Meter', desc: 'Drive 1 meter', xp: 20, icon: '📏', test: (c) => c.distance >= 1 },
@@ -82,6 +89,16 @@ export const LESSONS: Lesson[] = [
 export function bump(patch: (c: Counters) => Partial<Counters>) {
   academy.set((s) => ({ c: { ...s.c, ...patch(s.c) } }));
   evaluate();
+}
+
+/** One-off XP (trial results etc.). */
+export function grantXp(xp: number, why: string) {
+  if (xp <= 0) return;
+  const before = levelOf(academy.get().xp).index;
+  academy.set((st) => ({ xp: st.xp + xp }));
+  logEvent('academy', `+${xp} XP · ${why}`, 'good');
+  const after = levelOf(academy.get().xp);
+  if (after.index > before) { toast(`Level up — you're now a ${after.name}! 🚀`, 'good', 3600); logEvent('academy', `Level up: ${after.name}`, 'good'); }
 }
 
 function evaluate() {
@@ -148,6 +165,9 @@ bus.on('connected', ({ kind }) => bump((c) => ({ sessions: c.sessions + 1, demoS
 bus.on('rover', ({ e }) => { if (e === 'estop') { flags.estop = true; bump((c) => ({ estops: c.estops + 1 })); } });
 bus.on('command', ({ source }) => bump((c) => (source === 'voice' ? { voiceCmds: c.voiceCmds + 1 } : { typedCmds: c.typedCmds + 1 })));
 bus.on('voice', () => { flags.voice = true; });
+bus.on('cruise', () => bump((c) => ({ cruiseUses: c.cruiseUses + 1 })));
+bus.on('snapshot', () => bump((c) => ({ snapshots: c.snapshots + 1 })));
+bus.on('clip', () => bump((c) => ({ clips: c.clips + 1 })));
 bus.on('mission:start', () => bump((c) => ({ missionsRun: c.missionsRun + 1 })));
 bus.on('mission:end', ({ completed }) => { if (completed) { flags.missionDone = true; bump((c) => ({ missionsDone: c.missionsDone + 1 })); } });
 bus.on('mission:saved', ({ recorded }) => bump((c) => (recorded ? { recordings: c.recordings + 1 } : { missionsMade: c.missionsMade + 1 })));

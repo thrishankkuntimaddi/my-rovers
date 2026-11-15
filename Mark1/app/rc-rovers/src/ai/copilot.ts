@@ -146,7 +146,7 @@ function parse(text: string): Action[] {
     if (maxp) { const v = Math.max(20, Math.min(100, +maxp[1])); flush(); out.push({ t: 'set', patch: { maxPower: v }, say: `Max power limited to ${v}%.` }); continue; }
     if (has(c, /\bdark (mode|theme)\b/)) { flush(); out.push({ t: 'theme', v: 'dark' }); continue; }
     if (has(c, /\blight (mode|theme)\b/)) { flush(); out.push({ t: 'theme', v: 'light' }); continue; }
-    const toggles: [RegExp, keyof Settings, string][] = [[/\btilt( steering)?\b/, 'steerSource', 'Tilt steering'], [/\bengine sound\b/, 'engineSound', 'Engine sound'], [/\bhaptics?|vibration\b/, 'haptics', 'Haptics'], [/\b(sounds?|chimes?)\b/, 'uiSounds', 'Sounds'], [/\b(voice replies|talk back|speak)\b/, 'speakReplies', 'Spoken replies'], [/\btips\b/, 'novaTips', 'Tips']];
+    const toggles: [RegExp, keyof Settings, string][] = [[/\btilt( steering)?\b/, 'steerSource', 'Tilt steering'], [/\b(engine|motor) sounds?\b/, 'motorSound', 'Motor sound'], [/\bhaptics?|vibration\b/, 'haptics', 'Haptics'], [/\b(sounds?|chimes?)\b/, 'uiSounds', 'Sounds'], [/\b(voice replies|talk back|speak)\b/, 'speakReplies', 'Spoken replies'], [/\btips\b/, 'novaTips', 'Tips']];
     const tog = toggles.find(([re]) => re.test(c));
     if (tog && has(c, /\b(on|off|enable|disable|use|stop using|activate|deactivate)\b/)) {
       const on = !has(c, /\b(off|disable|stop using|deactivate|no)\b/);
@@ -154,6 +154,7 @@ function parse(text: string): Action[] {
       flush(); out.push({ t: 'set', patch, say: `${tog[2]} ${on ? 'on' : 'off'}.` }); continue;
     }
     if (has(c, /\b(map|trail|radar)\b/) && has(c, /\b(show|open|switch|view)\b/)) { flush(); out.push({ t: 'set', patch: { hudView: 'map' }, say: 'Showing the trail map.' }); continue; }
+    if (has(c, /\b(camera|fpv|video)\b/) && has(c, /\b(show|open|switch|view)\b/)) { flush(); out.push({ t: 'set', patch: { hudView: 'camera' }, say: 'Camera view on.' }); continue; }
     if (has(c, /\b(gauge|speedometer)\b/)) { flush(); out.push({ t: 'set', patch: { hudView: 'gauge' }, say: 'Showing the speed gauge.' }); continue; }
     // navigation
     const nav = c.match(/\b(?:open|show|go to|take me to|switch to)(?: the)? (garage|home|cockpit|drive|missions?|logs?|academy|school|achievements|settings|nova|chat)\b/);

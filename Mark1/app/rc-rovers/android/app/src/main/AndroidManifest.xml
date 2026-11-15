@@ -42,6 +42,8 @@
     <!-- Nova voice control -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- In-app updates: open the system installer for a newer RC-Rovers APK -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <queries>
         <intent><action android:name="android.speech.RecognitionService" /></intent>

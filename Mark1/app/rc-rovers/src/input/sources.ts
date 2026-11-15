@@ -116,6 +116,7 @@ export function startKeyboard() {
     else if (k === 'escape') control.estop();
     else if (k === 'e') { if (rover.get().tel.armed) control.disarm(); else control.arm(); }
     else if (k >= '1' && k <= '4') control.mode(MODES[+k - 1].id);
+    else if (k === 'c') control.cruise();
     else if (k === 'r') { if (recorder.get().on) stopRecording(true); else startRecording(); }
   };
   const up = (e: KeyboardEvent) => { const k = e.key.toLowerCase(); if (held.delete(k)) apply(); };

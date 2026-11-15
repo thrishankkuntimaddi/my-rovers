@@ -45,6 +45,12 @@ const PATHS: Record<string, string> = {
   keyboard: 'M3 6h18v12H3z M7 10h.01 M11 10h.01 M15 10h.01 M7 14h10',
   school: 'M2 9l10-5 10 5-10 5z M6 11v5c3 2 9 2 12 0v-5 M22 9v6',
   search: 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z M20 20l-4-4',
+  aperture: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M14.3 3.3L9.5 12 M20.4 9.2l-10 .2 M17.6 19L12.6 10.4 M9.7 20.7L14.5 12 M3.6 14.8l10-.2 M6.4 5l5 8.6',
+  video: 'M3 7h12v10H3z M15 10.5l6-3.5v10l-6-3.5',
+  flag: 'M5 21V4 M5 4h11l-2 4 2 4H5',
+  cruise: 'M12 20a8 8 0 1 0-8-8 M12 12l4.5-4.5 M4 16h5 M6 19h3',
+  expand: 'M14 4h6v6 M20 4l-7 7 M10 20H4v-6 M4 20l7-7',
+  shrink: 'M19 11h-6V5 M13 11l7-7 M5 13h6v6 M11 13l-7 7',
 };
 
 export type IconName = keyof typeof PATHS;

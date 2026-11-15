@@ -2,7 +2,7 @@
    - WsTransport:   real rover, firmware with WebSocket (Phase 3+)
    - HttpTransport: real rover, Firmware V1 (Phase 1) — discrete /api/cmd commands
    - DemoTransport: simulated rover in the app (no hardware)                        */
-import { cellPct, modeSpec, shape, EMPTY_TEL, type AppMsg, type DriveCfg, type DriveMode, type RoverMsg, type Telemetry } from './protocol';
+import { cellV, modeSpec, shape, EMPTY_TEL, type AppMsg, type DriveCfg, type DriveMode, type RoverMsg, type Telemetry } from './protocol';
 
 export interface Transport {
   send(msg: AppMsg): void;
@@ -129,15 +129,16 @@ export function openDemo(hooks: TransportHooks): Transport {
   let tgtThr = 0, tgtStr = 0, outThr = 0, outStr = 0;
   let lastDrive = performance.now();
   let failsafe = false;
-  let vRest = 12.15;             // resting pack voltage (3S, nearly full)
+  /* Battery model: state of charge drains with load. Tuned so a full demo pack gives
+     about 5 minutes of real driving (≈20 %/min at half load), a little longer when
+     gentle, a little shorter flat-out. Voltage follows the Li-ion curve and sags under load. */
+  let soc = 1;                   // 0…1
   let rssi = -46;
-  let drainEma = 0;              // % per minute
+  let rateEma = 0.2;             // fraction per minute, smoothed
   let lowWarned = false;
   let cutoff = false;
   const t0 = performance.now();
   let last = t0;
-  let lastPct = cellPct(vRest / CELLS);
-  let lastPctAt = t0;
   let telTick = 0;
 
   const emit = (m: RoverMsg) => hooks.onMessage(m);
@@ -161,20 +162,17 @@ export function openDemo(hooks: TransportHooks): Transport {
     outThr += Math.max(-step, Math.min(step, target - outThr));
     outStr += Math.max(-dt * 0.9, Math.min(dt * 0.9, wantStr - outStr));
 
-    // battery: drains with load, sags under load (sped up so it's visible in a demo)
+    // battery
     const load = Math.abs(outThr) / 100;
-    vRest -= (0.000004 + load * 0.00006) * dt;
+    const rate = armed ? 0.02 + load * 0.36 : 0.002;          // fraction per minute
+    soc = Math.max(0, soc - (rate * dt) / 60000);
+    rateEma += (rate - rateEma) * Math.min(1, dt / 4000);
+    const vRest = cellV(soc * 100) * CELLS;
     const vbat = Math.max(9.0, vRest - load * 0.55 - Math.abs(outStr) / 100 * 0.08);
-    const pct = Math.round(cellPct(vRest / CELLS));
-    if (now - lastPctAt > 4000) {
-      const rate = ((lastPct - cellPct(vRest / CELLS)) / (now - lastPctAt)) * 60000;
-      drainEma = drainEma === 0 ? rate : drainEma * 0.8 + rate * 0.2;
-      lastPct = cellPct(vRest / CELLS); lastPctAt = now;
-    }
-    const cell = vRest / CELLS;
+    const pct = Math.round(soc * 100);
     const warn: string[] = [];
-    if (cell < 3.5) { warn.push('lowbat'); if (!lowWarned) { lowWarned = true; emit({ t: 'evt', e: 'lowbat' }); } }
-    if (cell < 3.2 && !cutoff) { cutoff = true; if (armed) disarm('cutoff'); }
+    if (pct <= 15) { warn.push('lowbat'); if (!lowWarned) { lowWarned = true; emit({ t: 'evt', e: 'lowbat' }); } }
+    if (soc <= 0 && !cutoff) { cutoff = true; if (armed) disarm('cutoff'); }
 
     rssi += (Math.random() - 0.5) * 1.6 + (-48 - rssi) * 0.02;
 
@@ -183,7 +181,7 @@ export function openDemo(hooks: TransportHooks): Transport {
         t: 'tel', armed, mode, thr: Math.round(outThr), str: Math.round(outStr),
         vbat: Math.round(vbat * 100) / 100, pct, rssi: Math.round(rssi),
         up: Math.round((now - t0) / 1000),
-        estMin: drainEma > 0.05 ? Math.round(pct / drainEma) : null,
+        estMin: Math.round((soc / Math.max(armed ? rateEma : 0.2, 0.02)) * 10) / 10,
         warn,
       });
     }
@@ -195,7 +193,7 @@ export function openDemo(hooks: TransportHooks): Transport {
     send(m) {
       switch (m.t) {
         case 'drive': tgtThr = m.thr; tgtStr = m.str; lastDrive = performance.now(); failsafe = false; return;
-        case 'arm': if (!cutoff) { armed = true; failsafe = false; lastDrive = performance.now(); emit({ t: 'evt', e: 'armed' }); } return;
+        case 'arm': if (cutoff) emit({ t: 'evt', e: 'cutoff' }); else { armed = true; failsafe = false; lastDrive = performance.now(); emit({ t: 'evt', e: 'armed' }); } return;
         case 'disarm': if (armed) disarm('disarmed'); return;
         case 'estop': outThr = 0; disarm('estop'); return;
         case 'mode': mode = m.m; return;

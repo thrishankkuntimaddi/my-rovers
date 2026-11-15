@@ -14,6 +14,11 @@ export interface BusEvents {
   'mission:end': { name: string; completed: boolean; reason?: string };
   'mission:saved': { name: string; recorded: boolean };
   achievement: { id: string; title: string };
+  bump: { x: number; y: number };
+  cruise: { thr: number };
+  snapshot: { name: string };
+  clip: { name: string; seconds: number };
+  'trial:end': { course: string; ms: number; bumps: number; best: boolean };
 }
 
 type Handler<K extends keyof BusEvents> = (p: BusEvents[K]) => void;

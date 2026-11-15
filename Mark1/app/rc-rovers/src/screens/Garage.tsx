@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { DriveButton, NavMenu } from '../components/Futuristic';
+import { DriveButton, NavMenu, UpdateCard } from '../components/Futuristic';
 import { Icon, type IconName } from '../components/Icon';
 import { useStore } from '../state/store';
 import { settings } from '../state/settings';
@@ -26,12 +26,12 @@ function useInRange(enabled: boolean) {
   return state;
 }
 
-export function Garage({ onConnect, onDemo, onResume, onSettings, onTheme, themeIcon }: {
-  onConnect(): void; onDemo(): void; onResume(): void; onSettings(): void; onTheme(): void; themeIcon: IconName;
+export function Garage({ active = true, onConnect, onDemo, onResume, onSettings, onTheme, themeIcon }: {
+  active?: boolean; onConnect(): void; onDemo(): void; onResume(): void; onSettings(): void; onTheme(): void; themeIcon: IconName;
 }) {
   const r = useStore(rover);
   const live = r.status === 'connected' || r.status === 'lost';
-  const range = useInRange(!live);
+  const range = useInRange(active && !live);
   const chip = live
     ? r.kind === 'demo' ? <span className="lg-chip">Demo session</span> : <span className="lg-chip is-green"><i className="dot" />Connected</span>
     : range === 'online' ? <span className="lg-chip is-green"><i className="dot" />In range</span>
@@ -55,6 +55,8 @@ export function Garage({ onConnect, onDemo, onResume, onSettings, onTheme, theme
             <h1>{greeting()}</h1>
             <p className="lg-text-2">1 rover in your garage</p>
           </div>
+
+          <UpdateCard />
 
           <article className="lg-tile rover-card">
             <div className="rover-photo"><img src="img/mark1.jpeg" alt="MARK 1 rock crawler" draggable={false} /><span className="rover-badge">MARK 1</span></div>

@@ -40,6 +40,8 @@ The app tries the WebSocket first and falls back to basic mode automatically. It
 
 Open the link on your Android tablet or phone, install it, and tap **Try demo**.
 
+**Updating:** never uninstall. Every release is signed with the same key and has a higher version code, so it installs *over* the old app and keeps your missions, XP, logs and settings. From 2.2.0 on, the app checks for new releases itself: when one is out, an **Update** card appears in the Garage (also *Settings → About → Updates*). Tap it, then tap **Update** on Android's screen. The first time, Android asks you to allow *Install unknown apps* for RC-Rovers.
+
 ---
 
 ## What's new in 2.0
@@ -83,6 +85,13 @@ npm run android:apk
 **Option B (no cable):** send the `.apk` to the tablet (Google Drive, Telegram, USB file copy), open it, and allow *Install unknown apps* for that app when asked.
 
 `npm run android:open` opens the project in Android Studio if you prefer that.
+
+### Publishing a release
+1. Bump the version in `package.json`, `src/rover/protocol.ts` (`APP_VERSION`) and `android/app/build.gradle` (`versionName`, and `versionCode` +1).
+2. `npm run release:apk` builds the APK and **refuses** if it isn't signed with the RC-Rovers key or if `versionCode` isn't higher than the last release. Either would stop it installing as an update.
+3. Create the GitHub release with tag `rc-rovers-vX.Y.Z` and attach `android/app/build/release/RC-Rovers.apk` and `RC-Rovers-X.Y.Z.apk`. Installed apps find it automatically.
+
+The signing key is `~/.android/debug.keystore` on the build Mac. **Back it up.** If it's lost, future APKs can't update existing installs.
 
 ---
 
