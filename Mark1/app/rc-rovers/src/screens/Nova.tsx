@@ -11,12 +11,6 @@ const SUGGEST = [
   'start engine', 'forward slowly for 2 seconds then turn right', 'reverse 1 meter', 'sport mode', 'do a figure 8',
   'battery?', 'status report', 'record a drive', 'stop recording', 'trim left 3', 'dark mode', 'help',
 ];
-const CAPS = [
-  { icon: '🧭', t: 'Drive', d: '“forward fast for 3 s then left”' }, { icon: '🎚', t: 'Modes', d: '“crawl mode”, “turbo”' },
-  { icon: '🗺', t: 'Missions', d: '“run the patrol”' }, { icon: '🎬', t: 'Record', d: '“record a drive”' },
-  { icon: '🔋', t: 'Status', d: '“battery?”, “how far?”' }, { icon: '⚙️', t: 'Settings', d: '“tilt steering on”' },
-];
-
 export function Nova() {
   const n = useStore(nova);
   const v = useStore(voice);
@@ -46,11 +40,6 @@ export function Nova() {
       </header>
       <div className="lg-scroll page-scroll chat-scroll" ref={list}>
         <div className="page-inner chat">
-          {n.messages.length < 3 && (
-            <div className="caps">
-              {CAPS.map((c) => <div key={c.t} className="lg-tile cap"><span>{c.icon}</span><b>{c.t}</b><small>{c.d}</small></div>)}
-            </div>
-          )}
           {n.messages.map((m) => (
             <div key={m.id} className={`msg is-${m.from}${m.tone ? ` tone-${m.tone}` : ''}${m.source === 'tip' ? ' is-tip' : ''}`}>
               {m.from === 'nova' && <span className="nova-orb sm" />}

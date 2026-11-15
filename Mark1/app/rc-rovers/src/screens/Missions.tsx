@@ -60,12 +60,6 @@ export function Missions({ onDrive }: { onDrive(): void }) {
       </header>
       <div className="lg-scroll page-scroll">
         <div className="page-inner">
-          <div className="lg-tile intro">
-            <div>
-              <h2>Autopilot routes</h2>
-              <p className="lg-text-2">Build a route from moves, or record yourself driving in the cockpit (● button) and replay it. Touch any control during a run to take over instantly.</p>
-            </div>
-          </div>
           {custom.length > 0 && <>
             <h3 className="section-title">Yours</h3>
             <div className="mission-grid">
@@ -73,7 +67,7 @@ export function Missions({ onDrive }: { onDrive(): void }) {
                 onDelete={() => { deleteMission(m.id); toast(`Deleted “${m.name}”`); }} />)}
             </div>
           </>}
-          <h3 className="section-title">Built-in</h3>
+          {custom.length > 0 && <h3 className="section-title">Built-in</h3>}
           <div className="mission-grid">
             {BUILTIN.map((m) => <MissionCard key={m.id} m={m} onRun={() => run(m)} onCopy={() => copy(m)} />)}
           </div>

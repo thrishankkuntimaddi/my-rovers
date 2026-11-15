@@ -1,17 +1,10 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useState } from 'react';
 import { DriveButton, NavMenu } from '../components/Futuristic';
 import { Icon, type IconName } from '../components/Icon';
 import { useStore } from '../state/store';
 import { settings } from '../state/settings';
 import { rover } from '../rover/controller';
 import { probeRover } from '../rover/transports';
-
-const FUTURE: { name: string; theme: string; icon: IconName; tint: string }[] = [
-  { name: 'MARK 2', theme: 'Eyes · live camera', icon: 'camera', tint: 'var(--lg-blue)' },
-  { name: 'MARK 3', theme: 'Hands · gimbal & arm', icon: 'arm', tint: 'var(--lg-orange)' },
-  { name: 'MARK 4', theme: 'Brain · AI driving', icon: 'cube', tint: 'var(--lg-purple)' },
-  { name: 'MARK 5', theme: '3D vision · LiDAR', icon: 'globe', tint: 'var(--lg-teal)' },
-];
 
 function greeting() {
   const h = new Date().getHours();
@@ -60,7 +53,7 @@ export function Garage({ onConnect, onDemo, onResume, onSettings, onTheme, theme
         <div className="garage-inner">
           <div className="hello">
             <h1>{greeting()}</h1>
-            <p className="lg-text-2">1 rover in your garage · more on the way</p>
+            <p className="lg-text-2">1 rover in your garage</p>
           </div>
 
           <article className="lg-tile rover-card">
@@ -92,28 +85,6 @@ export function Garage({ onConnect, onDemo, onResume, onSettings, onTheme, theme
             </div>
           </article>
 
-          <h3 className="section-title">Coming next</h3>
-          <div className="future-grid">
-            {FUTURE.map((f) => (
-              <div key={f.name} className="lg-tile future">
-                <div className="lg-icon-tile" style={{ '--lg-tint': f.tint } as CSSProperties}><Icon name={f.icon} size={22} /></div>
-                <div><b>{f.name}</b><span className="lg-text-2">{f.theme}</span></div>
-                <Icon name="lock" size={16} className="future-lock" />
-              </div>
-            ))}
-          </div>
-
-          <h3 className="section-title">How to connect</h3>
-          <div className="lg-tile howto">
-            {[
-              ['Power on MARK 1', 'The blue LED blinks when the hotspot is up.'],
-              ['Join its Wi-Fi', 'Settings → Wi-Fi → MARK1_ROVER · password Mark1Rover26. Choose "stay connected".'],
-              ['Tap Connect', 'RC-Rovers finds the rover at 192.168.4.1 and opens the cockpit.'],
-            ].map(([t, s], i) => (
-              <div className="howto-step" key={t}><span className="howto-n">{i + 1}</span><div><b>{t}</b><p className="lg-text-2">{s}</p></div></div>
-            ))}
-          </div>
-          <p className="foot lg-text-3">RC-Rovers 1.0 · My Rovers series</p>
         </div>
       </div>
     </section>
