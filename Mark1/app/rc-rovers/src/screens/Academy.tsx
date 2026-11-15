@@ -1,3 +1,4 @@
+import { DriveButton, NavMenu } from '../components/Futuristic';
 import { Icon } from '../components/Icon';
 import { useStore } from '../state/store';
 import { ACHIEVEMENTS, LESSONS, academy, lessonsDone, levelOf, LEVELS } from '../state/academy';
@@ -11,8 +12,8 @@ export function Academy({ onLesson }: { onLesson(id: string): void }) {
   return (
     <section className="screen tabscreen">
       <header className="lg-header lg-bar page-head">
-        <div className="page-title"><Icon name="trophy" size={20} /><div><b>Academy</b><small>Driving school · achievements</small></div></div>
-        <span className="lg-chip">{a.xp} XP</span>
+        <NavMenu />
+        <div className="head-actions"><span className="lg-chip">{a.xp} XP</span><DriveButton /></div>
       </header>
       <div className="lg-scroll page-scroll">
         <div className="page-inner">

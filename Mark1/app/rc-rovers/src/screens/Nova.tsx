@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icon';
-import { MicButton } from '../components/Futuristic';
+import { DriveButton, MicButton, NavMenu } from '../components/Futuristic';
 import { useStore } from '../state/store';
 import { ask, clearChat, nova } from '../ai/copilot';
 import { voice } from '../ai/voice';
@@ -37,8 +37,12 @@ export function Nova() {
   return (
     <section className="screen tabscreen nova">
       <header className="lg-header lg-bar page-head">
-        <div className="page-title"><span className="nova-orb" /><div><b>Nova</b><small>Offline co-pilot · {live ? `linked to ${r.info?.name ?? 'MARK 1'}${r.kind === 'demo' ? ' (demo)' : ''}` : 'no rover connected'}</small></div></div>
-        <button className="lg-btn" onClick={clearChat}><Icon name="trash" size={15} />Clear</button>
+        <NavMenu />
+        <span className="head-status lg-chip">{live ? <><i className="dot is-green-dot" />{r.info?.name ?? 'MARK 1'}{r.kind === 'demo' ? ' · demo' : ''}</> : 'No rover'}</span>
+        <div className="head-actions">
+          <button className="lg-icon-btn" onClick={clearChat} aria-label="Clear chat"><Icon name="trash" size={17} /></button>
+          <DriveButton />
+        </div>
       </header>
       <div className="lg-scroll page-scroll chat-scroll" ref={list}>
         <div className="page-inner chat">

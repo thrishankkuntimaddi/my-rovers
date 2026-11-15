@@ -60,7 +60,7 @@ export type RoverMsg =
   | { t: 'evt'; e: RoverEvent };
 
 export const DEFAULT_HOST = '192.168.4.1';
-export const APP_VERSION = '2.0.0';
+export const APP_VERSION = '2.1.0';
 
 export const EMPTY_TEL: Telemetry = {
   armed: false, mode: 'cruise', thr: 0, str: 0, vbat: null, pct: null, rssi: null, up: 0, estMin: null, warn: [],

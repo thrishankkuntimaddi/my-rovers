@@ -55,7 +55,7 @@ Open the link on your Android tablet or phone, install it, and tap **Try demo**.
 | 🎓 | **Academy**: XP and 6 ranks (Rookie → Legend), 16 achievements, and an 8-lesson driving school checked live as you drive. |
 | 🧾 | **Logs**: every event by category (link, drive, voice, Nova, missions, academy, telemetry), search and filters, per-trip stats, lifetime stats, JSON/CSV export via Android share. |
 | 🔊 | **Sound**: synthesised chimes for ignition, stop, missions and unlocks, plus an optional engine hum that follows the throttle. |
-| ◐ | **Redesigned shell**: a floating Liquid Glass dock (Garage · Missions · Drive orb · Nova · Logs · Academy) and a cockpit with a Nova strip, mission progress, recording and lesson banners. |
+| ◐ | **Redesigned shell**: a Liquid Glass menu pill (top-left) that opens a floating glass menu, a Drive button (top-right), and a cockpit with a Nova strip, mission progress, recording and lesson banners. |
 
 ## Run it
 

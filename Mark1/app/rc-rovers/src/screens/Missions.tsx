@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Sheet, Slider } from '../components/Common';
 import { Icon } from '../components/Icon';
-import { PathPreview } from '../components/Futuristic';
+import { DriveButton, NavMenu, PathPreview } from '../components/Futuristic';
 import { useStore } from '../state/store';
 import { toast } from '../state/ui';
 import { haptic } from '../lib/native';
@@ -52,8 +52,11 @@ export function Missions({ onDrive }: { onDrive(): void }) {
   return (
     <section className="screen tabscreen">
       <header className="lg-header lg-bar page-head">
-        <div className="page-title"><Icon name="route" size={20} /><div><b>Missions</b><small>Program routes · record & replay</small></div></div>
-        <button className="lg-btn is-primary" onClick={() => setEditing(blank())}><Icon name="plus" size={16} />New</button>
+        <NavMenu />
+        <div className="head-actions">
+          <button className="lg-btn" onClick={() => setEditing(blank())}><Icon name="plus" size={16} /><span className="hide-xxs">New</span></button>
+          <DriveButton />
+        </div>
       </header>
       <div className="lg-scroll page-scroll">
         <div className="page-inner">

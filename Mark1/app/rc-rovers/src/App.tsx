@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { LiquidGlass, type ThemePref } from './lib/liquid-glass';
 import { Toasts } from './components/Common';
-import { Dock, type Tab } from './components/Futuristic';
+import { NavCtx, type Tab } from './components/Futuristic';
 import { Garage } from './screens/Garage';
 import { Drive } from './screens/Drive';
 import { Missions } from './screens/Missions';
@@ -63,6 +63,7 @@ export default function App() {
         {driving ? (
           <Drive onBack={() => setDriving(false)} onTelemetry={() => setSheet('telemetry')} onSettings={() => setSheet('settings')} />
         ) : (
+          <NavCtx.Provider value={{ tab, go: setTab, drive, live, settings: () => setSheet('settings') }}>
           <div className="tab-host" key={tab}>
             {tab === 'garage' && <Garage onConnect={() => start(false)} onDemo={() => start(true)} onResume={() => setDriving(true)}
               onSettings={() => setSheet('settings')} onTheme={cycleTheme} themeIcon={themeIcon} />}
@@ -71,8 +72,8 @@ export default function App() {
             {tab === 'logs' && <Logs />}
             {tab === 'academy' && <Academy onLesson={lesson} />}
           </div>
+          </NavCtx.Provider>
         )}
-        {!driving && <Dock tab={tab} onTab={setTab} onDrive={drive} live={live} />}
       </div>
       <ConnectSheet open={sheet === 'connect'} demo={demo} onClose={() => { cancelConnect(); setSheet(null); }}
         onRetry={() => start(false)} onDemo={() => start(true)} />

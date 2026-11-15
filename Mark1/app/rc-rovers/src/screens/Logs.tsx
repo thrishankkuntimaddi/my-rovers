@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { DriveButton, NavMenu } from '../components/Futuristic';
 import { Icon } from '../components/Icon';
 import { Segmented } from '../components/Controls';
 import { useStore } from '../state/store';
@@ -25,11 +26,14 @@ export function Logs() {
   return (
     <section className="screen tabscreen">
       <header className="lg-header lg-bar page-head">
-        <div className="page-title"><Icon name="list" size={20} /><div><b>Logs</b><small>{items.length} events · {allTrips.length} trips</small></div></div>
-        <Segmented<View> value={view} onChange={setView} options={[{ id: 'events', label: 'Events' }, { id: 'trips', label: 'Trips' }, { id: 'stats', label: 'Stats' }]} />
+        <NavMenu />
+        <div className="head-actions"><DriveButton /></div>
       </header>
       <div className="lg-scroll page-scroll">
         <div className="page-inner">
+          <div className="view-switch">
+            <Segmented<View> value={view} onChange={setView} options={[{ id: 'events', label: `Events · ${items.length}` }, { id: 'trips', label: `Trips · ${allTrips.length}` }, { id: 'stats', label: 'Stats' }]} />
+          </div>
           {view === 'events' && <>
             <div className="log-tools">
               <div className="search lg-field"><Icon name="search" size={16} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search logs" /></div>

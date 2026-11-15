@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react';
+import { DriveButton, NavMenu } from '../components/Futuristic';
 import { Icon, type IconName } from '../components/Icon';
 import { useStore } from '../state/store';
 import { settings } from '../state/settings';
@@ -47,13 +48,11 @@ export function Garage({ onConnect, onDemo, onResume, onSettings, onTheme, theme
   return (
     <section className="screen garage">
       <header className="lg-header lg-bar garage-head">
-        <div className="brand">
-          <div className="brand-mark"><Icon name="rover" size={20} /></div>
-          <div><div className="brand-name">RC-Rovers</div><div className="brand-sub">Garage</div></div>
-        </div>
+        <NavMenu />
         <div className="head-actions">
           <button className="lg-icon-btn" onClick={onTheme} aria-label="Theme"><Icon name={themeIcon} size={19} /></button>
           <button className="lg-icon-btn" onClick={onSettings} aria-label="Settings"><Icon name="gear" size={19} /></button>
+          <DriveButton />
         </div>
       </header>
 

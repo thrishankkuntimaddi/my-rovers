@@ -1,47 +1,88 @@
-/* 2.0 building blocks: navigation dock, trail map (radar), path preview, mic button. */
-import { useEffect, useLayoutEffect, useRef, type PointerEvent as RPointerEvent } from 'react';
+/* 2.0 building blocks: navigation menu, trail map (radar), path preview, mic button. */
+import { createContext, useContext, useEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { useStore } from '../state/store';
 import { odo } from '../state/odometry';
 import { voice, startListening, stopListening } from '../ai/voice';
 import { haptic } from '../lib/native';
 import { Icon, type IconName } from './Icon';
 
-/* ── dock ──────────────────────────────────────────────────────── */
+/* ── navigation: glass menu pill (top-left) + Drive button (top-right) ──
+   Replaces the bottom dock. The pill shows where you are; tapping it opens a
+   floating Liquid Glass menu that grows out of it (like iPadOS 26 menus). */
 export type Tab = 'garage' | 'missions' | 'nova' | 'logs' | 'academy';
-const TABS: { id: Tab; label: string; icon: IconName }[] = [
-  { id: 'garage', label: 'Garage', icon: 'rover' }, { id: 'missions', label: 'Missions', icon: 'route' },
-  { id: 'nova', label: 'Nova', icon: 'spark' }, { id: 'logs', label: 'Logs', icon: 'list' }, { id: 'academy', label: 'Academy', icon: 'trophy' },
+export const TABS: { id: Tab; label: string; icon: IconName; sub: string }[] = [
+  { id: 'garage', label: 'Garage', icon: 'rover', sub: 'Your rovers' },
+  { id: 'missions', label: 'Missions', icon: 'route', sub: 'Routes · record & replay' },
+  { id: 'nova', label: 'Nova', icon: 'spark', sub: 'AI co-pilot' },
+  { id: 'logs', label: 'Logs', icon: 'list', sub: 'Events · trips · stats' },
+  { id: 'academy', label: 'Academy', icon: 'trophy', sub: 'School · achievements' },
 ];
 
-export function Dock({ tab, onTab, onDrive, live }: { tab: Tab; onTab(t: Tab): void; onDrive(): void; live: boolean }) {
-  const nav = useRef<HTMLElement>(null);
-  const pill = useRef<HTMLSpanElement>(null);
-  useLayoutEffect(() => {
-    const place = () => {
-      const el = nav.current?.querySelector<HTMLElement>('.lg-dock-tab.is-active'); const p = pill.current;
-      if (!el || !p) return;
-      p.style.width = `${el.offsetWidth}px`; p.style.height = `${el.offsetHeight}px`;
-      p.style.transform = `translate3d(${el.offsetLeft}px, ${el.offsetTop}px, 0)`; p.style.opacity = '1';
-    };
-    place();
-    requestAnimationFrame(() => pill.current?.classList.add('is-ready'));
-    const ro = new ResizeObserver(place); if (nav.current) ro.observe(nav.current);
-    return () => ro.disconnect();
-  }, [tab]);
-  const btn = (t: (typeof TABS)[number]) => (
-    <button key={t.id} className={`lg-dock-tab${tab === t.id ? ' is-active' : ''}`} onClick={() => { if (t.id !== tab) { haptic('tick'); onTab(t.id); } }} aria-label={t.label}>
-      <Icon name={t.icon} size={20} /><span>{t.label}</span>
-    </button>
-  );
+export interface NavApi { tab: Tab; go(t: Tab): void; drive(): void; live: boolean; settings(): void }
+export const NavCtx = createContext<NavApi>({ tab: 'garage', go: () => {}, drive: () => {}, live: false, settings: () => {} });
+
+export function NavMenu() {
+  const nav = useContext(NavCtx);
+  const [open, setOpen] = useState(false);
+  const [shown, setShown] = useState(false);
+  const [at, setAt] = useState({ x: 16, y: 72 });
+  const btn = useRef<HTMLButtonElement>(null);
+  const cur = TABS.find((t) => t.id === nav.tab)!;
+
+  const show = () => {
+    const r = btn.current!.getBoundingClientRect();
+    setAt({ x: Math.max(8, r.left), y: r.bottom + 8 });
+    setOpen(true); haptic('light');
+    requestAnimationFrame(() => requestAnimationFrame(() => setShown(true)));
+  };
+  const hide = () => { setShown(false); setTimeout(() => setOpen(false), 260); };
+  useEffect(() => {
+    if (!open) return;
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') hide(); };
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, [open]);
+  const pick = (fn: () => void) => { haptic('tick'); hide(); setTimeout(fn, 120); };
+
   return (
-    <nav className="lg-dock lg-bar dock" ref={nav}>
-      <span className="lg-dock-pill" ref={pill} aria-hidden="true" />
-      {TABS.slice(0, 2).map(btn)}
-      <button className={`lg-dock-action drive-orb${live ? ' is-live' : ''}`} onClick={() => { haptic('medium'); onDrive(); }} aria-label="Drive">
-        <Icon name="gamepad" size={24} />
+    <>
+      <button ref={btn} className={`navpill${open ? ' is-open' : ''}`} onClick={() => (open ? hide() : show())} aria-haspopup="menu" aria-expanded={open}>
+        <Icon name={cur.icon} size={19} />
+        <span className="navpill-text"><b>{cur.label}</b><small>{cur.sub}</small></span>
+        <Icon name="down" size={15} className="navpill-chev" />
       </button>
-      {TABS.slice(2).map(btn)}
-    </nav>
+      {open && createPortal(
+        <div className={`navmenu-layer${shown ? ' is-shown' : ''}`} onPointerDown={(e) => { if (e.target === e.currentTarget) hide(); }}>
+          <div className="navmenu" role="menu" style={{ left: at.x, top: at.y }}>
+            <div className="navmenu-brand"><span className="brand-mark sm"><Icon name="rover" size={16} /></span><b>RC-Rovers</b></div>
+            {TABS.map((t) => (
+              <button key={t.id} role="menuitem" className={`navmenu-item${t.id === nav.tab ? ' is-active' : ''}`} onClick={() => pick(() => nav.go(t.id))}>
+                <Icon name={t.icon} size={20} /><span><b>{t.label}</b><small>{t.sub}</small></span>
+              </button>
+            ))}
+            <div className="navmenu-sep" />
+            <button role="menuitem" className="navmenu-item" onClick={() => pick(nav.drive)}>
+              <Icon name="gamepad" size={20} /><span><b>Drive</b><small>{nav.live ? 'Back to the cockpit' : 'Connect and drive'}</small></span>
+              {nav.live && <i className="navmenu-dot" />}
+            </button>
+            <button role="menuitem" className="navmenu-item" onClick={() => pick(nav.settings)}>
+              <Icon name="gear" size={20} /><span><b>Settings</b><small>Controls · voice · theme</small></span>
+            </button>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
+export function DriveButton() {
+  const nav = useContext(NavCtx);
+  return (
+    <button className={`lg-btn is-primary drive-btn${nav.live ? ' is-live' : ''}`} onClick={() => { haptic('medium'); nav.drive(); }} aria-label="Drive">
+      {nav.live && <i className="live-dot" />}<Icon name="gamepad" size={19} /><span>Drive</span>
+    </button>
   );
 }
 
