@@ -4,8 +4,6 @@
 import { createStore } from './store';
 import { rover } from '../rover/controller';
 import { updateTrip } from './logs';
-import { bus } from './bus';
-import { hitAt } from '../sim/world';
 
 export const VMAX = 1.4;          // m/s at 100% output (estimate for a 1:18 crawler)
 export const WHEELBASE = 0.26;    // m
@@ -24,7 +22,6 @@ export function stepPose(p: { x: number; y: number; h: number }, thrPct: number,
 
 let last = performance.now();
 let tripDist = 0;
-let lastBump = 0;
 setInterval(() => {
   const now = performance.now();
   const dt = Math.min(0.2, (now - last) / 1000);
@@ -35,15 +32,6 @@ setInterval(() => {
   if (Math.abs(thr) < 0.5) { if (odo.get().speed !== 0) odo.set({ speed: 0 }); return; }
   const s = odo.get();
   const n = stepPose(s, thr, str, dt);
-  // demo world: rocks and beacons are solid. Moving deeper into one is blocked (wheels spin).
-  if (r.kind === 'demo') {
-    const ob = hitAt(n.x, n.y);
-    if (ob && Math.hypot(n.x - ob.x, n.y - ob.y) < Math.hypot(s.x - ob.x, s.y - ob.y)) {
-      if (s.speed !== 0) odo.set({ speed: 0 });
-      if (now - lastBump > 700) { lastBump = now; bus.emit('bump', { x: ob.x, y: ob.y }); }
-      return;
-    }
-  }
   const sp = Math.abs(n.v);
   const dist = s.dist + sp * dt;
   const lastPt = s.trail[s.trail.length - 1];

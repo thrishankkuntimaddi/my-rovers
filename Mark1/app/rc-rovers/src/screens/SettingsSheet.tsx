@@ -2,7 +2,7 @@ import { Row, Sheet, Slider, Switch } from '../components/Common';
 import { checkForUpdate, installUpdate, update } from '../lib/updater';
 import { Segmented } from '../components/Controls';
 import { useStore } from '../state/store';
-import { DEFAULT_SETTINGS, settings, type ControlLayout, type ControlSize, type Quality, type SteerSource, type VoiceLang } from '../state/settings';
+import { DEFAULT_SETTINGS, settings, type ControlLayout, type ControlSize, type SteerSource, type VoiceLang } from '../state/settings';
 import { calibrateTilt, pad } from '../input/sources';
 import { speak } from '../ai/voice';
 import { exportLogs } from '../state/logs';
@@ -72,7 +72,7 @@ export function SettingsSheet({ open, onClose, theme, onTheme }: { open: boolean
               <span className={`lg-chip${gp.connected ? ' is-green' : ''}`}>{gp.connected ? 'Connected' : 'None'}</span>
             </Row>
             <Row title="Gamepad buttons" sub="Sticks/triggers drive · A arm · B e-stop · X stop · Y record · LB/RB mode" />
-            <Row title="Keyboard" sub="WASD/arrows drive · Shift boost · Space stop · Esc e-stop · E ignition · 1–4 modes · C speed hold · V next view · R record route" />
+            <Row title="Keyboard" sub="WASD/arrows drive · Shift boost · Space stop · Esc e-stop · E ignition · 1–4 modes · C speed hold · R record route" />
           </div>
         </div>
 
@@ -104,10 +104,6 @@ export function SettingsSheet({ open, onClose, theme, onTheme }: { open: boolean
               <Segmented<ThemePref> value={theme} onChange={onTheme}
                 options={[{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }, { id: 'system', label: 'Auto' }]} />
             </Row>
-            <Row title="Graphics" sub="Battery saver: 30 fps camera, fewer pixels. Smooth: full sharpness">
-              <Segmented<Quality> value={s.quality} onChange={(v) => set({ quality: v })}
-                options={[{ id: 'saver', label: 'Saver' }, { id: 'balanced', label: 'Balanced' }, { id: 'high', label: 'Sharp' }]} />
-            </Row>
             <Row title="Keep screen awake" sub="While driving"><Switch label="Keep screen awake" checked={s.keepAwake} onChange={(v) => set({ keepAwake: v })} /></Row>
           </div>
 
@@ -118,13 +114,9 @@ export function SettingsSheet({ open, onClose, theme, onTheme }: { open: boolean
                 onChange={(e) => set({ host: e.target.value })} />
             </Row>
             <Row title="Wi-Fi" sub="MARK1_ROVER · Mark1Rover26" />
-            <Row title="Front camera" sub="ESP32-CAM: http://<ip>:81/stream · blank = auto (demo: simulated)">
+            <Row title="Camera stream" sub="ESP32-CAM on the car: http://<ip>:81/stream · blank = auto">
               <input className="lg-field addr cam-field" value={s.cameraUrl} placeholder="auto" spellCheck={false} inputMode="url"
                 onChange={(e) => set({ cameraUrl: e.target.value })} />
-            </Row>
-            <Row title="Rear camera" sub="Optional second camera for the Rear view">
-              <input className="lg-field addr cam-field" value={s.rearCameraUrl} placeholder="none" spellCheck={false} inputMode="url"
-                onChange={(e) => set({ rearCameraUrl: e.target.value })} />
             </Row>
             <Row title="Connection" sub={r.status === 'idle' ? 'Not connected' : r.kind === 'demo' ? 'Demo rover' : r.status}>
               {r.status !== 'idle' && <button className="lg-btn" onClick={() => { disconnect(); onClose(); }}>Disconnect</button>}

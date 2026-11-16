@@ -12,7 +12,7 @@ import { control, rover } from '../rover/controller';
 import { MODES, modeSpec, type DriveMode } from '../rover/protocol';
 import { cruise } from '../rover/controller';
 import { snapshot, startClip, stopClip, capture } from '../lib/capture';
-import type { ViewId } from '../state/settings';
+import { hasCamera } from '../components/Camera';
 import { odo, VMAX } from '../state/odometry';
 import { allMissions, findMission, quickMission, runMission, startRecording, stopMission, stopRecording, recorder, sid, type Move, type Step } from '../missions/missions';
 import { input } from '../state/ui';
@@ -58,13 +58,6 @@ type Action =
   | { t: 'nav'; to: NavTarget } | { t: 'reply'; text: string }
   | { t: 'hold'; on: boolean } | { t: 'shift'; dir: 1 | -1 } | { t: 'photo' } | { t: 'video'; on: boolean };
 
-const VIEW_WORDS: [RegExp, ViewId, string][] = [
-  [/\b(rear|back|reverse|reversing|backup)( camera| cam| view)\b|\brear ?view\b/, 'rear', 'Rear camera.'],
-  [/\b(chase|third person|behind( the car)?)( camera| cam| view)?\b/, 'chase', 'Chase camera.'],
-  [/\b(driver|cockpit|steering|inside|dash(board)?)( camera| cam| view)\b/, 'driver', 'Driver view.'],
-  [/\b(top|bird|birds eye|overhead|top down|aerial)( camera| cam| view)\b/, 'top', 'Top-down view.'],
-  [/\b(front|fpv|bumper|nose)( camera| cam| view)\b|\bfront ?cam\b/, 'front', 'Front camera.'],
-];
 
 function speedOf(c: string): number | null {
   const pct = c.match(/(\d+(?:\.\d+)?)\s*(?:%|percent|per cent)/); if (pct) return Math.min(100, +pct[1]);
@@ -176,11 +169,9 @@ function parse(text: string): Action[] {
       const patch = (tog[1] === 'steerSource' ? { steerSource: on ? 'tilt' : 'touch' } : { [tog[1]]: on }) as Partial<Settings>;
       flush(); out.push({ t: 'set', patch, say: `${tog[2]} ${on ? 'on' : 'off'}.` }); continue;
     }
-    const vw = VIEW_WORDS.find(([re]) => re.test(c));
-    if (vw) { flush(); out.push({ t: 'set', patch: { view: vw[1] }, say: vw[2] }); continue; }
-    if (has(c, /\b(map|trail|radar)\b/) && has(c, /\b(show|open|switch|view)\b/)) { flush(); out.push({ t: 'set', patch: { view: 'map' }, say: 'Showing the trail map.' }); continue; }
-    if (has(c, /\b(camera|fpv)\b/) && has(c, /\b(show|open|switch|view)\b/)) { flush(); out.push({ t: 'set', patch: { view: 'front' }, say: 'Front camera.' }); continue; }
-    if (has(c, /\b(gauge|gauges|speedometer|dials?)\b/)) { flush(); out.push({ t: 'set', patch: { view: 'gauge' }, say: 'Showing the gauges.' }); continue; }
+    if (has(c, /\b(map|trail|radar)\b/) && has(c, /\b(show|open|switch|view)\b/)) { flush(); out.push({ t: 'set', patch: { hudView: 'map' }, say: 'Showing the trail map.' }); continue; }
+    if (has(c, /\b(camera|fpv)\b/) && has(c, /\b(show|open|switch|view)\b/)) { flush(); out.push({ t: 'set', patch: { hudView: 'camera' }, say: 'Camera view.' }); continue; }
+    if (has(c, /\b(gauge|gauges|speedometer|dials?)\b/)) { flush(); out.push({ t: 'set', patch: { hudView: 'gauge' }, say: 'Showing the gauges.' }); continue; }
     // navigation
     const nav = c.match(/\b(?:open|show|go to|take me to|switch to)(?: the)? (garage|home|cockpit|drive|missions?|logs?|academy|school|achievements|settings|nova|chat)\b/);
     if (nav) {
@@ -224,7 +215,7 @@ function answer(key: string): string {
       if (!live) return off;
       return `All systems ${tel.warn.length ? 'nominal, with warnings: ' + tel.warn.join(', ') : 'nominal'}. Ignition ${tel.armed ? 'on' : 'off'}, ${modeSpec(tel.mode).label} mode, battery ${tel.pct ?? '—'}%, link ${r.kind === 'demo' ? 'demo' : r.kind === 'http' ? 'basic' : 'full'}.`;
     case 'missions': return `You have ${allMissions().length} missions: ${allMissions().slice(0, 8).map((m) => m.name).join(', ')}${allMissions().length > 8 ? '…' : ''}. Say “run” and a name.`;
-    case 'help': return 'Try: “forward slowly for 2 seconds then turn right” · “reverse 1 meter” · “faster” / “slower” · “sport mode” · “hold speed” · “run the figure 8” · “chase view” / “rear camera” · “take a photo” · “record video” · “battery?” · “status report” · “trim left 3” · “stop”.';
+    case 'help': return 'Try: “forward slowly for 2 seconds then turn right” · “reverse 1 meter” · “faster” / “slower” · “sport mode” · “hold speed” · “run the figure 8” · “camera view” · “take a photo” · “record video” · “battery?” · “status report” · “trim left 3” · “stop”.';
     case 'hello': return `Hello! ${rover.get().status === 'connected' ? `MARK 1 is ${rover.get().tel.armed ? 'armed and ready' : 'online — say “start engine” when ready'}.` : 'Connect to MARK 1 or try the demo and we can roll.'}`;
     case 'thanks': return 'Any time. Drive safe!';
   }
@@ -312,9 +303,9 @@ export function ask(text: string, source: 'typed' | 'voice' = 'typed'): string {
         if (n.id === rover.get().tel.mode) { replies.push(a.dir > 0 ? `Already in ${n.label}, the top mode.` : `Already in ${n.label}, the gentlest mode.`); break; }
         control.mode(n.id); replies.push(`${n.label} mode — power cap ${n.cap}%.`); break;
       }
-      case 'photo': settings.set({ view: ['map', 'gauge'].includes(settings.get().view) ? 'front' : settings.get().view }); setTimeout(snapshot, 250); replies.push('Snapshot!'); break;
+      case 'photo': settings.set({ hudView: 'camera' }); setTimeout(snapshot, 250); replies.push(hasCamera() ? 'Snapshot!' : 'Connect a camera first.'); break;
       case 'video':
-        if (a.on) { if (capture.get().clip) replies.push('Already filming.'); else { if (['map', 'gauge'].includes(settings.get().view)) settings.set({ view: 'front' }); setTimeout(startClip, 250); replies.push('Filming. Say “stop video” to save it to the Gallery.'); } }
+        if (a.on) { if (capture.get().clip) replies.push('Already filming.'); else if (!hasCamera()) { settings.set({ hudView: 'camera' }); replies.push('Connect a camera first.'); } else { settings.set({ hudView: 'camera' }); setTimeout(startClip, 250); replies.push('Filming. Say “stop video” to save it to the Gallery.'); } }
         else { if (capture.get().clip) { stopClip(); replies.push('Saving the clip to the Gallery.'); } else replies.push('Not filming right now.'); }
         break;
       case 'theme': LiquidGlass.theme.set(a.v); window.dispatchEvent(new CustomEvent('rcr-theme')); replies.push(`${a.v === 'dark' ? 'Dark' : 'Light'} theme on.`); break;

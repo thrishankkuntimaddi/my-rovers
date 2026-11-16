@@ -3,7 +3,6 @@
 import { createStore } from '../state/store';
 import { odo, resetOdo } from '../state/odometry';
 import { addDriveHold, rover } from '../rover/controller';
-import { settings } from '../state/settings';
 import { bus } from '../state/bus';
 import { toast } from '../state/ui';
 import { logEvent } from '../state/logs';
@@ -44,7 +43,7 @@ export function startTrial(id: string): { ok: boolean; reason?: string } {
   if (r.status !== 'connected' || r.kind !== 'demo') return { ok: false, reason: 'Time trials run on the demo rover. Connect the demo first.' };
   clearTimers();
   resetOdo();
-  if (['map', 'gauge'].includes(settings.get().view)) settings.set({ view: 'chase' });
+
   trial.set({ course: id, phase: 'countdown', count: 3, next: 0, t0: 0, bumps: 0, splits: [], result: null });
   chime('tap'); haptic('light');
   for (const n of [2, 1]) timers.push(setTimeout(() => { trial.set({ count: n }); chime('tap'); haptic('light'); }, (3 - n) * 1000));

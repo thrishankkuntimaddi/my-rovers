@@ -8,7 +8,6 @@ import { MODES } from '../rover/protocol';
 import { manualOverride, recorder, startRecording, stopRecording } from '../missions/missions';
 import { hardStop } from '../ai/copilot';
 import { haptic } from '../lib/native';
-import { stepView } from '../state/views';
 import { logEvent } from '../state/logs';
 
 const clamp = (v: number, lo = -100, hi = 100) => Math.max(lo, Math.min(hi, v));
@@ -129,7 +128,6 @@ export function startKeyboard() {
     else if (k === 'e') { if (rover.get().tel.armed) control.disarm(); else control.arm(); }
     else if (k >= '1' && k <= '4') control.mode(MODES[+k - 1].id);
     else if (k === 'c') control.cruise();
-    else if (k === 'v') stepView(e.shiftKey ? -1 : 1);
     else if (k === 'r') { if (recorder.get().on) stopRecording(true); else startRecording(); }
   };
   const up = (e: KeyboardEvent) => { const k = e.key.toLowerCase(); if (held.delete(k)) apply(); };

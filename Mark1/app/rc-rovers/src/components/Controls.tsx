@@ -32,144 +32,142 @@ function useDetents() {
   };
 }
 
-/* ── Floating thumb controls ───────────────────────────────────────
-   Touch anywhere in your side of the screen: the control appears under your thumb and
-   that spot is "zero". A short push gives full deflection (Settings → Control size), so
-   your hands never leave the edges of the tablet. Each zone tracks its own finger, so
-   throttle and steering work at the same time (multi-touch). Release = back to zero. */
-export const TRAVEL: Record<ControlSize, number> = { s: 54, m: 72, l: 96 };
-type ThumbKind = 'thr' | 'str' | 'stick';
+/* ── Fixed throttle / steering sliders (spring back to zero) ──────────
+   Short, thumb-sized tracks: the length is 2 × travel (Settings → Control size), so full
+   power or full lock is a small thumb movement. Each track follows its own finger
+   (pointer capture), so throttle and steering work together. Straight-line assist
+   snaps small steering to straight. */
+export const TRAVEL: Record<ControlSize, number> = { s: 60, m: 78, l: 100 };
 
-export function ThumbZone({ kind, side, armed, steerTilt = false }: { kind: ThumbKind; side: 'left' | 'right'; armed: boolean; steerTilt?: boolean }) {
-  const zone = useRef<HTMLDivElement>(null);
-  const float = useRef<HTMLDivElement>(null);
+export function AxisControl({ axis, armed, label, hints }: { axis: 'thr' | 'str'; armed: boolean; label: string; hints: [string, string] }) {
+  const vertical = axis === 'thr';
+  const track = useRef<HTMLDivElement>(null);
   const knob = useRef<HTMLDivElement>(null);
-  const fillP = useRef<HTMLDivElement>(null);
-  const fillN = useRef<HTMLDivElement>(null);
-  const readout = useRef<HTMLSpanElement>(null);
-  const act = useRef<{ id: number; ox: number; oy: number } | null>(null);
+  const fillPos = useRef<HTMLDivElement>(null);
+  const fillNeg = useRef<HTMLDivElement>(null);
+  const valueEl = useRef<HTMLSpanElement>(null);
+  const active = useRef<number | null>(null);
   const travel = TRAVEL[useSel(settings, (s) => s.controlSize)];
   const assist = useSel(settings, (s) => s.straightAssist);
   const detent = useDetents();
 
-  const home = useCallback(() => {
-    const z = zone.current;
-    if (!z) return { x: 0, y: 0 };
-    return { x: z.clientWidth / 2, y: Math.min(z.clientHeight - travel - 28, z.clientHeight * (kind === 'str' ? 0.66 : 0.6)) };
-  }, [kind, travel]);
+  const render = useCallback((v: number, spring: boolean) => {
+    const k = knob.current;
+    if (!k) return;
+    const off = (v / 100) * travel;
+    k.classList.toggle('is-spring', spring);
+    fillPos.current?.classList.toggle('is-spring', spring);
+    fillNeg.current?.classList.toggle('is-spring', spring);
+    k.style.transform = vertical ? `translate3d(0, ${-off}px, 0)` : `translate3d(${off}px, 0, 0)`;
+    const sc = (n: number) => (vertical ? `scaleY(${n})` : `scaleX(${n})`);
+    if (fillPos.current) fillPos.current.style.transform = sc(Math.max(0, v) / 100);
+    if (fillNeg.current) fillNeg.current.style.transform = sc(Math.max(0, -v) / 100);
+    if (valueEl.current) valueEl.current.textContent = v === 0 ? (vertical ? 'N' : 'Straight') : `${vertical ? (v > 0 ? 'D' : 'R') : v > 0 ? 'R' : 'L'} ${Math.round(Math.abs(v))}`;
+  }, [vertical, travel]);
 
-  const show = useCallback((x: number, y: number, dx: number, dy: number, active: boolean) => {
-    const f = float.current, k = knob.current;
-    if (!f || !k) return;
-    f.style.transform = `translate3d(${x}px, ${y}px, 0)`;
-    f.classList.toggle('is-active', active);
-    k.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
-    const sc = (n: number) => (kind === 'thr' ? `scaleY(${n})` : `scaleX(${n})`);
-    if (kind !== 'stick') {
-      const v = kind === 'thr' ? -dy / travel : dx / travel;
-      if (fillP.current) fillP.current.style.transform = sc(Math.max(0, v));
-      if (fillN.current) fillN.current.style.transform = sc(Math.max(0, -v));
-    }
-  }, [kind, travel]);
-
-  const rest = useCallback((spring: boolean) => {
-    const f = float.current;
-    if (!f) return;
-    f.classList.toggle('is-spring', spring);
-    knob.current?.classList.toggle('is-spring', spring);
-    const h = home();
-    show(h.x, h.y, 0, 0, false);
-    if (readout.current) readout.current.textContent = kind === 'thr' ? 'Throttle' : kind === 'str' ? 'Steer' : 'Drive';
-  }, [home, show, kind]);
-
-  /** Map a thumb offset to stick values (and the knob's drawn offset). */
-  const compute = (dx: number, dy: number) => {
-    if (kind === 'thr') {
-      const d = Math.max(-travel, Math.min(travel, dy));
-      let v = clamp((-d / travel) * 100);
-      if (Math.abs(v) < 4) v = 0;
-      return { thr: v, str: undefined, kx: 0, ky: d, label: v === 0 ? 'N' : `${v > 0 ? 'D' : 'R'} ${Math.round(Math.abs(v))}` };
-    }
-    if (kind === 'str') {
-      const d = Math.max(-travel, Math.min(travel, dx));
-      let v = clamp((d / travel) * 100);
-      if (assist) v = Math.abs(v) < 8 ? 0 : Math.sign(v) * ((Math.abs(v) - 8) / 92) * 100;
-      return { thr: undefined, str: v, kx: d, ky: 0, label: v === 0 ? 'Straight' : `${v > 0 ? 'R' : 'L'} ${Math.round(Math.abs(v))}` };
-    }
-    let x = dx / travel, y = -dy / travel;
-    const m = Math.hypot(x, y);
-    if (m > 1) { x /= m; y /= m; }
-    const kx = x * travel, ky = -y * travel;
-    if (assist) {
-      if (Math.abs(x) < Math.abs(y) * 0.26) x = 0;          // within ~15° of straight ahead / back
-      else if (Math.abs(y) < Math.abs(x) * 0.2) y = 0;
-      if (Math.abs(x) < 0.06) x = 0;
-    }
-    if (Math.hypot(x, y) < 0.05) { x = 0; y = 0; }
-    const thr = y * 100, str = x * 100;
-    return { thr, str: steerTilt ? undefined : str, kx, ky, label: thr === 0 && str === 0 ? 'N' : `${thr >= 0 ? 'D' : 'R'} ${Math.round(Math.abs(thr))}` };
+  const fromPointer = (e: RPointerEvent) => {
+    const r = track.current!.getBoundingClientRect();
+    const d = vertical ? r.top + r.height / 2 - e.clientY : e.clientX - r.left - r.width / 2;
+    let v = clamp((d / travel) * 100);
+    if (vertical) { if (Math.abs(v) < 4) v = 0; }
+    else if (assist) v = Math.abs(v) < 8 ? 0 : Math.sign(v) * ((Math.abs(v) - 8) / 92) * 100;
+    return v;
   };
-
-  const write = (thr: number | undefined, str: number | undefined) => {
-    const p: { thr?: number; str?: number } = {};
-    if (thr !== undefined) p.thr = thr;
-    if (str !== undefined) p.str = str;
-    input.set(p);
-  };
-
-  const onDown = (e: RPointerEvent<HTMLDivElement>) => {
-    if (act.current != null) return;               // one finger per zone; others are ignored
-    const r = zone.current!.getBoundingClientRect();
-    act.current = { id: e.pointerId, ox: e.clientX - r.left, oy: e.clientY - r.top };
-    zone.current!.setPointerCapture(e.pointerId);
-    float.current?.classList.remove('is-spring');
-    knob.current?.classList.remove('is-spring');
-    show(act.current.ox, act.current.oy, 0, 0, true);
-    if (readout.current) readout.current.textContent = kind === 'str' ? 'Straight' : 'N';
+  const onDown = (e: RPointerEvent) => {
+    if (active.current != null) return;
+    active.current = e.pointerId;
+    track.current!.setPointerCapture(e.pointerId);
+    track.current!.classList.add('is-active');
     manualOverride();
     nagIfLocked(armed);
     haptic('light');
+    onMove(e);
   };
-  const onMove = (e: RPointerEvent<HTMLDivElement>) => {
-    const a = act.current;
-    if (!a || a.id !== e.pointerId) return;
-    const r = zone.current!.getBoundingClientRect();
-    const c = compute(e.clientX - r.left - a.ox, e.clientY - r.top - a.oy);
-    write(c.thr, c.str);
-    detent(kind === 'str' ? c.str ?? 0 : c.thr ?? 0);
-    show(a.ox, a.oy, c.kx, c.ky, true);
-    if (readout.current) readout.current.textContent = c.label;
+  const onMove = (e: RPointerEvent) => {
+    if (active.current !== e.pointerId) return;
+    const v = fromPointer(e);
+    input.set({ [axis]: v } as { thr: number } | { str: number });
+    detent(v);
+    render(v, false);
   };
-  const onUp = (e: RPointerEvent<HTMLDivElement>) => {
-    const a = act.current;
-    if (!a || a.id !== e.pointerId) return;
-    act.current = null;
-    write(kind === 'str' ? undefined : 0, kind === 'thr' ? undefined : steerTilt ? undefined : 0);
+  const onUp = (e: RPointerEvent) => {
+    if (active.current !== e.pointerId) return;
+    active.current = null;
+    track.current!.classList.remove('is-active');
+    input.set({ [axis]: 0 } as { thr: number } | { str: number });
+    render(0, true);
     detent(0);
-    rest(true);
   };
-
-  useLayoutEffect(() => {
-    rest(false);
-    const ro = new ResizeObserver(() => { if (!act.current) rest(false); });
-    if (zone.current) ro.observe(zone.current);
-    return () => ro.disconnect();
-  }, [rest]);
-  useEffect(() => () => { write(kind === 'str' ? undefined : 0, kind === 'thr' ? undefined : 0); }, [kind]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => { render(0, false); }, [render]);
+  useEffect(() => () => { input.set({ [axis]: 0 } as { thr: number } | { str: number }); }, [axis]);
 
   return (
-    <div className={`thumb is-${side} is-${kind}`} ref={zone} style={{ ['--travel' as string]: `${travel}px` }}
-      onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onLostPointerCapture={onUp}
-      onContextMenu={(e) => e.preventDefault()} role="application" aria-label={kind === 'thr' ? 'Throttle: touch and slide up or down' : kind === 'str' ? 'Steering: touch and slide left or right' : 'Joystick'}>
-      <div className="thumb-float" ref={float}>
-        <div className="thumb-track">
-          {kind !== 'stick' && <><div className="thumb-fill is-pos" ref={fillP} /><div className="thumb-fill is-neg" ref={fillN} /></>}
-          {kind === 'thr' && <><span className="thumb-tag is-a">D</span><span className="thumb-tag is-b">R</span></>}
-          {kind === 'str' && <><span className="thumb-tag is-a">L</span><span className="thumb-tag is-b">R</span></>}
-          {kind === 'stick' && <><span className="thumb-tag is-n">D</span><span className="thumb-tag is-s">R</span><span className="thumb-tag is-w">L</span><span className="thumb-tag is-e">R</span></>}
-        </div>
-        <div className="thumb-knob" ref={knob}><span ref={readout} /></div>
+    <div className={`axis2 ${vertical ? 'is-v' : 'is-h'}`} style={{ ['--travel' as string]: `${travel}px` }}>
+      <span className="lg-label">{label}</span>
+      <div className="axis2-track" ref={track} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
+        onContextMenu={(e) => e.preventDefault()} role="slider" aria-label={label} aria-valuemin={-100} aria-valuemax={100} aria-valuenow={0}>
+        <div className="axis2-fill is-pos" ref={fillPos} />
+        <div className="axis2-fill is-neg" ref={fillNeg} />
+        <span className="axis2-hint is-a">{hints[0]}</span>
+        <span className="axis2-hint is-b">{hints[1]}</span>
+        <div className="axis2-knob" ref={knob}><span ref={valueEl} /></div>
       </div>
+    </div>
+  );
+}
+
+/* ── Joystick (one thumb: throttle + steering), same compact size ── */
+export function Joystick({ armed, steerTilt = false }: { armed: boolean; steerTilt?: boolean }) {
+  const base = useRef<HTMLDivElement>(null);
+  const knob = useRef<HTMLDivElement>(null);
+  const active = useRef<number | null>(null);
+  const travel = TRAVEL[useSel(settings, (s) => s.controlSize)];
+  const assist = useSel(settings, (s) => s.straightAssist);
+  const detent = useDetents();
+  const place = (x: number, y: number, spring: boolean) => {
+    const k = knob.current!;
+    k.classList.toggle('is-spring', spring);
+    k.style.transform = `translate3d(${(x / 100) * travel}px, ${(-y / 100) * travel}px, 0)`;
+  };
+  const onMove = (e: RPointerEvent) => {
+    if (active.current !== e.pointerId) return;
+    const rect = base.current!.getBoundingClientRect();
+    let x = (e.clientX - rect.left - rect.width / 2) / travel, y = (rect.top + rect.height / 2 - e.clientY) / travel;
+    const m = Math.hypot(x, y);
+    if (m > 1) { x /= m; y /= m; }
+    place(x * 100, y * 100, false);
+    if (assist) {
+      if (Math.abs(x) < Math.abs(y) * 0.26) x = 0;          // within ~15° of straight ahead / back
+      else if (Math.abs(y) < Math.abs(x) * 0.2) y = 0;
+    }
+    if (Math.hypot(x, y) < 0.05) { x = 0; y = 0; }
+    input.set(steerTilt ? { thr: y * 100 } : { thr: y * 100, str: x * 100 });
+    detent(Math.hypot(x, y) * 100);
+  };
+  const onDown = (e: RPointerEvent) => {
+    if (active.current != null) return;
+    active.current = e.pointerId;
+    base.current!.setPointerCapture(e.pointerId);
+    base.current!.classList.add('is-active');
+    manualOverride();
+    nagIfLocked(armed);
+    haptic('light');
+    onMove(e);
+  };
+  const onUp = (e: RPointerEvent) => {
+    if (active.current !== e.pointerId) return;
+    active.current = null;
+    base.current!.classList.remove('is-active');
+    input.set(steerTilt ? { thr: 0 } : { thr: 0, str: 0 });
+    place(0, 0, true);
+    detent(0);
+  };
+  useEffect(() => () => input.set({ thr: 0, str: 0 }), []);
+  return (
+    <div className="joy2" ref={base} style={{ ['--travel' as string]: `${travel}px` }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
+      onContextMenu={(e) => e.preventDefault()} role="application" aria-label="Joystick">
+      <span className="joy2-tag is-n">D</span><span className="joy2-tag is-s">R</span><span className="joy2-tag is-w">L</span><span className="joy2-tag is-e">R</span>
+      <div className="axis2-knob" ref={knob} />
     </div>
   );
 }

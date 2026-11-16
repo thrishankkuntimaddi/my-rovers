@@ -44,18 +44,18 @@ Open the link on your Android tablet or phone, install it, and tap **Try demo**.
 
 ---
 
-## What's new in 2.3
+## What's new in 2.3.1
 
-| | Fix / feature |
+RC-Rovers is the controller for a real car, so the cockpit is back to the 2.2 layout. Changes in this version:
+
+| | Change |
 |---|---|
-| 👍 | **Floating thumb controls**: touch anywhere on the left to drive (slide up/down), anywhere on the right to steer. A short push = full power or full lock (Small / Medium / Large in Settings). Both thumbs work at once (true multi-touch). Joystick layout and *Swap sides* available. |
-| ↔︎ | **Drives straight**: straight-line assist ignores small sideways thumb drift; tilt steering zeroes itself when the cockpit opens; trim shows when it's pulling and has a *Centre* button. |
-| 🎥 | **Seven views, swipe between them**: Chase · Front · Driver (steering wheel turns with you) · Rear (mirrored, parking guides) · Top-down · Map · Gauges. Drag up/down to zoom or tilt, double-tap to reset. Real rover: Front/Driver/Rear show live streams (rear stream URL in Settings); demo: everything is simulated and labelled DEMO SIM. |
-| 📸 | **Photo and video work**: ⏺ now records *video* (route recording moved to Missions). Files go to the Gallery: Pictures/RC-Rovers and Movies/RC-Rovers. |
-| ⤢ | **Full view** opens and closes (✕ button, Android back). Back now closes the top-most thing everywhere. |
-| ✦ | **Nova voice works offline**: on-device recognition first (no internet on the rover's Wi-Fi), clear errors, tap to talk or hold for push-to-talk. Nova starts the ignition itself when you ask it to drive, and understands “chase view”, “rear camera”, “take a photo”, “record video”, “hold speed”, “faster” / “slower”. |
-| 🛞 | **Speed hold** (was “Cruise”) sits above the throttle; the 50% drive mode is now called **Normal** so the two aren't confused. |
-| 🔋 | **Smoother, lighter**: only the widgets that change re-render, hidden tabs are frozen, no live blur over the camera, 60/30 fps cap (Settings → Graphics), ~20 fps when parked, nothing drawn in the background. Demo battery lasts ~25 min instead of 5. |
+| 👍 | **Compact throttle and steering**: short, thumb-sized tracks (Small / Medium / Large in Settings). Both work at the same time. Straight-line assist ignores small sideways drift; *Swap sides* and a joystick layout are available. |
+| 📷 | **Camera = the car's camera only**: live stream when one is connected, otherwise “Connect a camera”. Photos and clips save to the Gallery (Pictures/RC-Rovers, Movies/RC-Rovers). Full screen closes with *Exit full screen* or Android back. |
+| ✦ | **Nova voice works on the rover's Wi-Fi** (on-device recognition, clear errors, tap or hold the mic). Nova starts the ignition when asked to drive. |
+| 🛞 | **Speed hold** (was “Cruise”); the 50% mode is now **Normal**. |
+| 🔋 | Lighter: hidden tabs are frozen, no blur over the camera. Demo battery lasts ~25 min. Android back closes the top-most sheet everywhere. |
+| ✂︎ | Removed: simulated camera views and time trials. |
 
 ## What's new in 2.0
 
