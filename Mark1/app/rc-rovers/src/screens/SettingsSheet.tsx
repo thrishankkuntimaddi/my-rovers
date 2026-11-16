@@ -2,7 +2,7 @@ import { Row, Sheet, Slider, Switch } from '../components/Common';
 import { checkForUpdate, installUpdate, update } from '../lib/updater';
 import { Segmented } from '../components/Controls';
 import { useStore } from '../state/store';
-import { DEFAULT_SETTINGS, settings, type ControlLayout, type SteerSource, type VoiceLang } from '../state/settings';
+import { DEFAULT_SETTINGS, settings, type ControlLayout, type ControlSize, type Quality, type SteerSource, type VoiceLang } from '../state/settings';
 import { calibrateTilt, pad } from '../input/sources';
 import { speak } from '../ai/voice';
 import { exportLogs } from '../state/logs';
@@ -26,10 +26,16 @@ export function SettingsSheet({ open, onClose, theme, onTheme }: { open: boolean
         <div className="settings-col">
           <h3 className="section-title">Driving</h3>
           <div className="lg-tile group">
-            <Row title="Controls" sub="Two thumbs, or a joystick with a tap pad">
+            <Row title="Controls" sub="Two thumbs (throttle + steering), or one joystick">
               <Segmented<ControlLayout> value={s.layout} onChange={(v) => set({ layout: v })}
-                options={[{ id: 'dual', label: 'Dual' }, { id: 'joystick', label: 'Joystick' }]} />
+                options={[{ id: 'dual', label: 'Two thumbs' }, { id: 'stick', label: 'Joystick' }]} />
             </Row>
+            <Row title="Control size" sub="How far your thumb moves for full power / full lock">
+              <Segmented<ControlSize> value={s.controlSize} onChange={(v) => set({ controlSize: v })}
+                options={[{ id: 's', label: 'Small' }, { id: 'm', label: 'Medium' }, { id: 'l', label: 'Large' }]} />
+            </Row>
+            <Row title="Swap sides" sub={s.layout === 'stick' ? 'Joystick on the right' : 'Steering on the left, throttle on the right'}><Switch label="Swap sides" checked={s.swapSides} onChange={(v) => set({ swapSides: v })} /></Row>
+            <Row title="Straight-line assist" sub="Small sideways thumb drift counts as straight"><Switch label="Straight-line assist" checked={s.straightAssist} onChange={(v) => set({ straightAssist: v })} /></Row>
             <Row title="Start-up mode">
               <Segmented<DriveMode> value={s.defaultMode} onChange={(v) => set({ defaultMode: v })}
                 options={MODES.map((m) => ({ id: m.id, label: m.label }))} />
@@ -43,8 +49,9 @@ export function SettingsSheet({ open, onClose, theme, onTheme }: { open: boolean
             <Row title="Expo" sub="Finer control at low speed">
               <Slider label="Expo" value={s.expo} min={0} max={80} step={5} onChange={(v) => set({ expo: v })} format={(v) => `${v}`} />
             </Row>
-            <Row title="Steering trim" sub="Nudge until it drives straight">
+            <Row title="Steering trim" sub={s.trim === 0 ? 'Centred. Nudge only if the real rover pulls to one side' : `${s.trim > 0 ? 'Pulling right' : 'Pulling left'} by ${Math.abs(s.trim)}: set to 0 to drive straight`}>
               <Slider label="Steering trim" value={s.trim} min={-20} max={20} onChange={(v) => set({ trim: v })} format={(v) => (v > 0 ? `+${v}` : `${v}`)} />
+              {s.trim !== 0 && <button className="lg-btn" onClick={() => set({ trim: 0 })}>Centre</button>}
             </Row>
             <Row title="Invert throttle"><Switch label="Invert throttle" checked={s.invertThr} onChange={(v) => set({ invertThr: v })} /></Row>
             <Row title="Invert steering"><Switch label="Invert steering" checked={s.invertStr} onChange={(v) => set({ invertStr: v })} /></Row>
@@ -65,7 +72,7 @@ export function SettingsSheet({ open, onClose, theme, onTheme }: { open: boolean
               <span className={`lg-chip${gp.connected ? ' is-green' : ''}`}>{gp.connected ? 'Connected' : 'None'}</span>
             </Row>
             <Row title="Gamepad buttons" sub="Sticks/triggers drive · A arm · B e-stop · X stop · Y record · LB/RB mode" />
-            <Row title="Keyboard" sub="WASD/arrows drive · Shift boost · Space stop · Esc e-stop · E ignition · 1–4 modes · R record" />
+            <Row title="Keyboard" sub="WASD/arrows drive · Shift boost · Space stop · Esc e-stop · E ignition · 1–4 modes · C speed hold · V next view · R record route" />
           </div>
         </div>
 
@@ -77,6 +84,7 @@ export function SettingsSheet({ open, onClose, theme, onTheme }: { open: boolean
               <Segmented<VoiceLang> value={s.voiceLang} onChange={(v) => set({ voiceLang: v })}
                 options={[{ id: 'en-US', label: 'US' }, { id: 'en-GB', label: 'UK' }, { id: 'en-IN', label: 'India' }]} />
             </Row>
+            <Row title="Talking to Nova" sub="Tap the mic and speak (it stops when you pause), or hold it while you talk. On the rover’s Wi-Fi there is no internet: download Android’s offline English pack (Settings → Google → Voice → Offline speech recognition)." />
             <Row title="Proactive tips" sub="Battery, signal and safety advice"><Switch label="Tips" checked={s.novaTips} onChange={(v) => set({ novaTips: v })} /></Row>
             <Row title="Test voice"><button className="lg-btn" onClick={() => speak('Nova online. All systems nominal.')}>Speak</button></Row>
           </div>
@@ -96,6 +104,10 @@ export function SettingsSheet({ open, onClose, theme, onTheme }: { open: boolean
               <Segmented<ThemePref> value={theme} onChange={onTheme}
                 options={[{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }, { id: 'system', label: 'Auto' }]} />
             </Row>
+            <Row title="Graphics" sub="Battery saver: 30 fps camera, fewer pixels. Smooth: full sharpness">
+              <Segmented<Quality> value={s.quality} onChange={(v) => set({ quality: v })}
+                options={[{ id: 'saver', label: 'Saver' }, { id: 'balanced', label: 'Balanced' }, { id: 'high', label: 'Sharp' }]} />
+            </Row>
             <Row title="Keep screen awake" sub="While driving"><Switch label="Keep screen awake" checked={s.keepAwake} onChange={(v) => set({ keepAwake: v })} /></Row>
           </div>
 
@@ -106,9 +118,13 @@ export function SettingsSheet({ open, onClose, theme, onTheme }: { open: boolean
                 onChange={(e) => set({ host: e.target.value })} />
             </Row>
             <Row title="Wi-Fi" sub="MARK1_ROVER · Mark1Rover26" />
-            <Row title="Camera stream" sub="Optional. ESP32-CAM: http://<ip>:81/stream · blank = auto">
+            <Row title="Front camera" sub="ESP32-CAM: http://<ip>:81/stream · blank = auto (demo: simulated)">
               <input className="lg-field addr cam-field" value={s.cameraUrl} placeholder="auto" spellCheck={false} inputMode="url"
                 onChange={(e) => set({ cameraUrl: e.target.value })} />
+            </Row>
+            <Row title="Rear camera" sub="Optional second camera for the Rear view">
+              <input className="lg-field addr cam-field" value={s.rearCameraUrl} placeholder="none" spellCheck={false} inputMode="url"
+                onChange={(e) => set({ rearCameraUrl: e.target.value })} />
             </Row>
             <Row title="Connection" sub={r.status === 'idle' ? 'Not connected' : r.kind === 'demo' ? 'Demo rover' : r.status}>
               {r.status !== 'idle' && <button className="lg-btn" onClick={() => { disconnect(); onClose(); }}>Disconnect</button>}

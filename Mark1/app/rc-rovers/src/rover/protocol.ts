@@ -6,7 +6,7 @@ export interface ModeSpec { id: DriveMode; label: string; cap: number; rampMs: n
 
 export const MODES: ModeSpec[] = [
   { id: 'crawl', label: 'Crawl', cap: 25, rampMs: 600 },
-  { id: 'cruise', label: 'Cruise', cap: 50, rampMs: 400 },
+  { id: 'cruise', label: 'Normal', cap: 50, rampMs: 400 },   // id stays 'cruise' (protocol); shown as Normal so it isn't confused with speed hold
   { id: 'sport', label: 'Sport', cap: 75, rampMs: 250 },
   { id: 'full', label: 'Full', cap: 100, rampMs: 150 },
 ];
@@ -60,7 +60,7 @@ export type RoverMsg =
   | { t: 'evt'; e: RoverEvent };
 
 export const DEFAULT_HOST = '192.168.4.1';
-export const APP_VERSION = '2.2.0';
+export const APP_VERSION = '2.3.0';
 
 export const EMPTY_TEL: Telemetry = {
   armed: false, mode: 'cruise', thr: 0, str: 0, vbat: null, pct: null, rssi: null, up: 0, estMin: null, warn: [],

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Activity, useCallback, useEffect, useState } from 'react';
 import { LiquidGlass, type ThemePref } from './lib/liquid-glass';
 import { Toasts } from './components/Common';
 import { NavCtx, type Tab } from './components/Futuristic';
@@ -53,6 +53,7 @@ export default function App() {
     else if (to) { setDriving(false); setTab(to); }
   }, [n.navRequest]);
 
+  const shown = (t: Tab) => (!driving && tab === t ? 'visible' : 'hidden');
   const drive = () => { if (live) setDriving(true); else start(false); };
   const lesson = (id: string) => { startLesson(id); if (live) setDriving(true); else start(true); };
   const applyTheme = (t: ThemePref) => { LiquidGlass.theme.set(t); setTheme(t); };
@@ -62,16 +63,17 @@ export default function App() {
   return (
     <>
       <div className={`stage is-${driving ? 'drive' : tab}`}>
-        {/* Sections stay mounted once visited and are only hidden when inactive, so switching is
-            instant and keeps scroll position, chat, editors and live checks — no "reload" flash. */}
+        {/* Sections stay mounted once visited (instant switching, scroll and chat kept), but hidden
+            ones sit in <Activity mode="hidden">: React stops rendering them and pauses their effects,
+            so they cost nothing while you drive. */}
         <NavCtx.Provider value={{ tab, go: setTab, drive, live, settings: () => setSheet('settings') }}>
           <div className="tab-host" hidden={driving}>
-            {visited.has('garage') && <div className="tab-pane" hidden={tab !== 'garage'}><Garage active={!driving && tab === 'garage'} onConnect={() => start(false)} onDemo={() => start(true)} onResume={() => setDriving(true)}
-              onSettings={() => setSheet('settings')} onTheme={cycleTheme} themeIcon={themeIcon} /></div>}
-            {visited.has('missions') && <div className="tab-pane" hidden={tab !== 'missions'}><Missions onDrive={() => setDriving(true)} /></div>}
-            {visited.has('nova') && <div className="tab-pane" hidden={tab !== 'nova'}><Nova /></div>}
-            {visited.has('logs') && <div className="tab-pane" hidden={tab !== 'logs'}><Logs /></div>}
-            {visited.has('academy') && <div className="tab-pane" hidden={tab !== 'academy'}><Academy onLesson={lesson} /></div>}
+            {visited.has('garage') && <Activity mode={shown('garage')}><div className="tab-pane"><Garage active={!driving && tab === 'garage'} onConnect={() => start(false)} onDemo={() => start(true)} onResume={() => setDriving(true)}
+              onSettings={() => setSheet('settings')} onTheme={cycleTheme} themeIcon={themeIcon} /></div></Activity>}
+            {visited.has('missions') && <Activity mode={shown('missions')}><div className="tab-pane"><Missions onDrive={() => setDriving(true)} /></div></Activity>}
+            {visited.has('nova') && <Activity mode={shown('nova')}><div className="tab-pane"><Nova /></div></Activity>}
+            {visited.has('logs') && <Activity mode={shown('logs')}><div className="tab-pane"><Logs /></div></Activity>}
+            {visited.has('academy') && <Activity mode={shown('academy')}><div className="tab-pane"><Academy onLesson={lesson} /></div></Activity>}
           </div>
         </NavCtx.Provider>
         {driving && <Drive onBack={() => setDriving(false)} onTelemetry={() => setSheet('telemetry')} onSettings={() => setSheet('settings')} />}

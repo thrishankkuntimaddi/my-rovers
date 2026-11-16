@@ -7,6 +7,7 @@ import { voice, startListening, stopListening } from '../ai/voice';
 import { haptic } from '../lib/native';
 import { installUpdate, update } from '../lib/updater';
 import { Icon, type IconName } from './Icon';
+import { useBack } from '../lib/back';
 
 /* ── navigation: glass menu pill (top-left) + Drive button (top-right) ──
    Replaces the bottom dock. The pill shows where you are; tapping it opens a
@@ -38,12 +39,7 @@ export function NavMenu() {
     requestAnimationFrame(() => requestAnimationFrame(() => setShown(true)));
   };
   const hide = () => { setShown(false); setTimeout(() => setOpen(false), 260); };
-  useEffect(() => {
-    if (!open) return;
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') hide(); };
-    window.addEventListener('keydown', k);
-    return () => window.removeEventListener('keydown', k);
-  }, [open]);
+  useBack(open, hide);
   const pick = (fn: () => void) => { haptic('tick'); hide(); setTimeout(fn, 120); };
 
   return (
@@ -138,21 +134,28 @@ export function PathPreview({ pts }: { pts: [number, number][] }) {
   );
 }
 
-/* ── hold-to-talk mic ──────────────────────────────────────────── */
+/* ── mic: tap to talk (stops when you pause) · hold for push-to-talk ── */
 export function MicButton({ size = 'md', label }: { size?: 'md' | 'lg'; label?: string }) {
   const v = useStore(voice);
-  const pid = useRef<number | null>(null);
+  const press = useRef<{ id: number; at: number; wasOn: boolean } | null>(null);
   const down = (e: RPointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
-    pid.current = e.pointerId;
+    e.stopPropagation();
+    press.current = { id: e.pointerId, at: performance.now(), wasOn: voice.get().listening };
     e.currentTarget.setPointerCapture(e.pointerId);
-    startListening();
+    if (voice.get().listening) stopListening(); else startListening();
   };
-  const up = (e: RPointerEvent) => { if (pid.current !== e.pointerId) return; pid.current = null; stopListening(); };
-  useEffect(() => () => { if (pid.current != null) stopListening(); }, []);
+  const up = (e: RPointerEvent) => {
+    const p = press.current;
+    if (!p || p.id !== e.pointerId) return;
+    press.current = null;
+    if (!p.wasOn && performance.now() - p.at > 450) stopListening();   // held: push-to-talk
+  };
+  useEffect(() => () => { if (press.current) stopListening(); }, []);
   return (
     <button className={`mic is-${size}${v.listening ? ' is-listening' : ''}${v.speaking ? ' is-speaking' : ''}`} onPointerDown={down} onPointerUp={up} onPointerCancel={up}
-      onContextMenu={(e) => e.preventDefault()} aria-label="Hold to talk">
+      style={{ ['--lvl' as string]: v.level.toFixed(2) }}
+      onContextMenu={(e) => e.preventDefault()} aria-label={v.listening ? 'Listening: tap to finish' : 'Tap to talk to Nova'}>
       <span className="mic-ring" /><span className="mic-ring is-2" />
       <Icon name="mic" size={size === 'lg' ? 28 : 21} />
       {label && <span className="mic-label">{v.listening ? 'Listening…' : label}</span>}

@@ -29,3 +29,10 @@ export function createStore<T extends object>(initial: T, opts: { batched?: bool
 export function useStore<T extends object>(store: Store<T>): T {
   return useSyncExternalStore(store.subscribe, store.get, store.get);
 }
+
+/** Subscribe to one derived value. The component re-renders only when that value changes
+    (compare with Object.is), so return primitives or stable references. */
+export function useSel<T extends object, R>(store: Store<T>, sel: (s: T) => R): R {
+  const get = () => sel(store.get());
+  return useSyncExternalStore(store.subscribe, get, get);
+}

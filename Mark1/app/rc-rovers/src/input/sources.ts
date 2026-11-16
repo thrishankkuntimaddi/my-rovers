@@ -8,6 +8,7 @@ import { MODES } from '../rover/protocol';
 import { manualOverride, recorder, startRecording, stopRecording } from '../missions/missions';
 import { hardStop } from '../ai/copilot';
 import { haptic } from '../lib/native';
+import { stepView } from '../state/views';
 import { logEvent } from '../state/logs';
 
 const clamp = (v: number, lo = -100, hi = 100) => Math.max(lo, Math.min(hi, v));
@@ -26,6 +27,8 @@ export function startTilt() {
   if (tiltOff) return;
   let smooth = 0;
   let got = false;
+  // Auto-centre: however you hold the device when the cockpit opens is "straight".
+  const seed: number[] = [];
   const onMotion = (e: DeviceMotionEvent) => {
     const g = e.accelerationIncludingGravity;
     if (!g || g.x == null || g.y == null) return;
@@ -33,10 +36,19 @@ export function startTilt() {
     const a = screenAngle();
     const sx = a === 90 ? g.y : a === 270 ? -g.y : a === 180 ? -g.x : g.x;          // screen-right component
     const roll = (Math.asin(Math.max(-1, Math.min(1, -sx / 9.81))) * 180) / Math.PI;  // right side down = +
-    smooth = smooth * 0.7 + roll * 0.3;
+    smooth = seed.length ? smooth * 0.7 + roll * 0.3 : roll;
+    if (seed.length < 10) {
+      seed.push(roll);
+      if (seed.length === 10) {
+        settings.set({ tiltZero: Math.round((seed.reduce((x, y) => x + y, 0) / seed.length) * 10) / 10 });
+        toast('Tilt centred: hold it like this to drive straight', 'neutral', 2000);
+      }
+      tilt.set({ roll: smooth, value: 0 });
+      return;
+    }
     const s = settings.get();
     const v = clamp(((smooth - s.tiltZero) / s.tiltRange) * 100);
-    const out = Math.abs(v) < 4 ? 0 : v;
+    const out = Math.abs(v) < 7 ? 0 : Math.sign(v) * ((Math.abs(v) - 7) / 93) * 100;   // centre band = straight
     input.set({ str: out });
     tilt.set({ roll: smooth, value: out });
   };
@@ -117,6 +129,7 @@ export function startKeyboard() {
     else if (k === 'e') { if (rover.get().tel.armed) control.disarm(); else control.arm(); }
     else if (k >= '1' && k <= '4') control.mode(MODES[+k - 1].id);
     else if (k === 'c') control.cruise();
+    else if (k === 'v') stepView(e.shiftKey ? -1 : 1);
     else if (k === 'r') { if (recorder.get().on) stopRecording(true); else startRecording(); }
   };
   const up = (e: KeyboardEvent) => { const k = e.key.toLowerCase(); if (held.delete(k)) apply(); };

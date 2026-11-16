@@ -2,12 +2,13 @@
    via transforms on refs — no React re-render per pointer move, so dragging stays
    at the display's full refresh rate (120 Hz on the Pad 5). */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
+import { settings, type ControlSize } from '../state/settings';
 import { input, toast } from '../state/ui';
 import { haptic } from '../lib/native';
 import { MODES, type DriveMode } from '../rover/protocol';
 import { Icon } from './Icon';
 import { manualOverride } from '../missions/missions';
-import { useStore } from '../state/store';
+import { useSel, useStore } from '../state/store';
 import { tilt, calibrateTilt } from '../input/sources';
 
 const clamp = (v: number, lo = -100, hi = 100) => Math.max(lo, Math.min(hi, v));
@@ -31,185 +32,159 @@ function useDetents() {
   };
 }
 
-/* ── Single-axis spring-return control (throttle: vertical, steering: horizontal) ── */
-export function AxisControl({ axis, armed, label, hints }: { axis: 'thr' | 'str'; armed: boolean; label: string; hints: [string, string] }) {
-  const vertical = axis === 'thr';
-  const track = useRef<HTMLDivElement>(null);
+/* ── Floating thumb controls ───────────────────────────────────────
+   Touch anywhere in your side of the screen: the control appears under your thumb and
+   that spot is "zero". A short push gives full deflection (Settings → Control size), so
+   your hands never leave the edges of the tablet. Each zone tracks its own finger, so
+   throttle and steering work at the same time (multi-touch). Release = back to zero. */
+export const TRAVEL: Record<ControlSize, number> = { s: 54, m: 72, l: 96 };
+type ThumbKind = 'thr' | 'str' | 'stick';
+
+export function ThumbZone({ kind, side, armed, steerTilt = false }: { kind: ThumbKind; side: 'left' | 'right'; armed: boolean; steerTilt?: boolean }) {
+  const zone = useRef<HTMLDivElement>(null);
+  const float = useRef<HTMLDivElement>(null);
   const knob = useRef<HTMLDivElement>(null);
-  const fillPos = useRef<HTMLDivElement>(null);
-  const fillNeg = useRef<HTMLDivElement>(null);
-  const valueEl = useRef<HTMLSpanElement>(null);
-  const active = useRef<number | null>(null);
+  const fillP = useRef<HTMLDivElement>(null);
+  const fillN = useRef<HTMLDivElement>(null);
+  const readout = useRef<HTMLSpanElement>(null);
+  const act = useRef<{ id: number; ox: number; oy: number } | null>(null);
+  const travel = TRAVEL[useSel(settings, (s) => s.controlSize)];
+  const assist = useSel(settings, (s) => s.straightAssist);
   const detent = useDetents();
 
-  const render = useCallback((v: number, spring: boolean) => {
-    const t = track.current, k = knob.current;
-    if (!t || !k) return;
-    const len = vertical ? t.clientHeight - k.offsetHeight : t.clientWidth - k.offsetWidth;
-    const off = (v / 100) * (len / 2);
-    k.classList.toggle('is-spring', spring);
-    fillPos.current?.classList.toggle('is-spring', spring);
-    fillNeg.current?.classList.toggle('is-spring', spring);
-    k.style.transform = vertical ? `translate3d(0, ${-off}px, 0)` : `translate3d(${off}px, 0, 0)`;
-    const s = (n: number) => (vertical ? `scaleY(${n})` : `scaleX(${n})`);
-    if (fillPos.current) fillPos.current.style.transform = s(Math.max(0, v) / 100);
-    if (fillNeg.current) fillNeg.current.style.transform = s(Math.max(0, -v) / 100);
-    if (valueEl.current) valueEl.current.textContent = v === 0 ? '0' : `${v > 0 ? '+' : '−'}${Math.round(Math.abs(v))}`;
-  }, [vertical]);
+  const home = useCallback(() => {
+    const z = zone.current;
+    if (!z) return { x: 0, y: 0 };
+    return { x: z.clientWidth / 2, y: Math.min(z.clientHeight - travel - 28, z.clientHeight * (kind === 'str' ? 0.66 : 0.6)) };
+  }, [kind, travel]);
 
-  const fromPointer = (e: RPointerEvent) => {
-    const r = track.current!.getBoundingClientRect();
-    const k = knob.current!;
-    const half = ((vertical ? r.height - k.offsetHeight : r.width - k.offsetWidth) / 2) || 1;
-    const raw = vertical ? (r.top + r.height / 2 - e.clientY) / half : (e.clientX - r.left - r.width / 2) / half;
-    return clamp(raw * 100);
+  const show = useCallback((x: number, y: number, dx: number, dy: number, active: boolean) => {
+    const f = float.current, k = knob.current;
+    if (!f || !k) return;
+    f.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+    f.classList.toggle('is-active', active);
+    k.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
+    const sc = (n: number) => (kind === 'thr' ? `scaleY(${n})` : `scaleX(${n})`);
+    if (kind !== 'stick') {
+      const v = kind === 'thr' ? -dy / travel : dx / travel;
+      if (fillP.current) fillP.current.style.transform = sc(Math.max(0, v));
+      if (fillN.current) fillN.current.style.transform = sc(Math.max(0, -v));
+    }
+  }, [kind, travel]);
+
+  const rest = useCallback((spring: boolean) => {
+    const f = float.current;
+    if (!f) return;
+    f.classList.toggle('is-spring', spring);
+    knob.current?.classList.toggle('is-spring', spring);
+    const h = home();
+    show(h.x, h.y, 0, 0, false);
+    if (readout.current) readout.current.textContent = kind === 'thr' ? 'Throttle' : kind === 'str' ? 'Steer' : 'Drive';
+  }, [home, show, kind]);
+
+  /** Map a thumb offset to stick values (and the knob's drawn offset). */
+  const compute = (dx: number, dy: number) => {
+    if (kind === 'thr') {
+      const d = Math.max(-travel, Math.min(travel, dy));
+      let v = clamp((-d / travel) * 100);
+      if (Math.abs(v) < 4) v = 0;
+      return { thr: v, str: undefined, kx: 0, ky: d, label: v === 0 ? 'N' : `${v > 0 ? 'D' : 'R'} ${Math.round(Math.abs(v))}` };
+    }
+    if (kind === 'str') {
+      const d = Math.max(-travel, Math.min(travel, dx));
+      let v = clamp((d / travel) * 100);
+      if (assist) v = Math.abs(v) < 8 ? 0 : Math.sign(v) * ((Math.abs(v) - 8) / 92) * 100;
+      return { thr: undefined, str: v, kx: d, ky: 0, label: v === 0 ? 'Straight' : `${v > 0 ? 'R' : 'L'} ${Math.round(Math.abs(v))}` };
+    }
+    let x = dx / travel, y = -dy / travel;
+    const m = Math.hypot(x, y);
+    if (m > 1) { x /= m; y /= m; }
+    const kx = x * travel, ky = -y * travel;
+    if (assist) {
+      if (Math.abs(x) < Math.abs(y) * 0.26) x = 0;          // within ~15° of straight ahead / back
+      else if (Math.abs(y) < Math.abs(x) * 0.2) y = 0;
+      if (Math.abs(x) < 0.06) x = 0;
+    }
+    if (Math.hypot(x, y) < 0.05) { x = 0; y = 0; }
+    const thr = y * 100, str = x * 100;
+    return { thr, str: steerTilt ? undefined : str, kx, ky, label: thr === 0 && str === 0 ? 'N' : `${thr >= 0 ? 'D' : 'R'} ${Math.round(Math.abs(thr))}` };
   };
 
-  const onDown = (e: RPointerEvent) => {
-    if (active.current != null) return;
-    active.current = e.pointerId;
-    track.current!.setPointerCapture(e.pointerId);
-    track.current!.classList.add('is-active');
+  const write = (thr: number | undefined, str: number | undefined) => {
+    const p: { thr?: number; str?: number } = {};
+    if (thr !== undefined) p.thr = thr;
+    if (str !== undefined) p.str = str;
+    input.set(p);
+  };
+
+  const onDown = (e: RPointerEvent<HTMLDivElement>) => {
+    if (act.current != null) return;               // one finger per zone; others are ignored
+    const r = zone.current!.getBoundingClientRect();
+    act.current = { id: e.pointerId, ox: e.clientX - r.left, oy: e.clientY - r.top };
+    zone.current!.setPointerCapture(e.pointerId);
+    float.current?.classList.remove('is-spring');
+    knob.current?.classList.remove('is-spring');
+    show(act.current.ox, act.current.oy, 0, 0, true);
+    if (readout.current) readout.current.textContent = kind === 'str' ? 'Straight' : 'N';
     manualOverride();
     nagIfLocked(armed);
     haptic('light');
-    onMove(e);
   };
-  const onMove = (e: RPointerEvent) => {
-    if (active.current !== e.pointerId) return;
-    const v = fromPointer(e);
-    input.set({ [axis]: v } as { thr: number } | { str: number });
-    detent(v);
-    render(v, false);
+  const onMove = (e: RPointerEvent<HTMLDivElement>) => {
+    const a = act.current;
+    if (!a || a.id !== e.pointerId) return;
+    const r = zone.current!.getBoundingClientRect();
+    const c = compute(e.clientX - r.left - a.ox, e.clientY - r.top - a.oy);
+    write(c.thr, c.str);
+    detent(kind === 'str' ? c.str ?? 0 : c.thr ?? 0);
+    show(a.ox, a.oy, c.kx, c.ky, true);
+    if (readout.current) readout.current.textContent = c.label;
   };
-  const onUp = (e: RPointerEvent) => {
-    if (active.current !== e.pointerId) return;
-    active.current = null;
-    track.current!.classList.remove('is-active');
-    input.set({ [axis]: 0 } as { thr: number } | { str: number });   // value returns to 0 immediately…
-    render(0, true);                                                   // …only the knob springs
+  const onUp = (e: RPointerEvent<HTMLDivElement>) => {
+    const a = act.current;
+    if (!a || a.id !== e.pointerId) return;
+    act.current = null;
+    write(kind === 'str' ? undefined : 0, kind === 'thr' ? undefined : steerTilt ? undefined : 0);
     detent(0);
+    rest(true);
   };
 
-  useEffect(() => {
-    const ro = new ResizeObserver(() => render(0, false));
-    if (track.current) ro.observe(track.current);
-    return () => { ro.disconnect(); input.set({ [axis]: 0 } as { thr: number } | { str: number }); };
-  }, [axis, render]);
+  useLayoutEffect(() => {
+    rest(false);
+    const ro = new ResizeObserver(() => { if (!act.current) rest(false); });
+    if (zone.current) ro.observe(zone.current);
+    return () => ro.disconnect();
+  }, [rest]);
+  useEffect(() => () => { write(kind === 'str' ? undefined : 0, kind === 'thr' ? undefined : 0); }, [kind]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className={`axis ${vertical ? 'is-v' : 'is-h'}`}>
-      <div className="axis-head"><span className="lg-label">{label}</span><span className="axis-value" ref={valueEl}>0</span></div>
-      <div className="axis-track" ref={track} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
-        role="slider" aria-label={label} aria-valuemin={-100} aria-valuemax={100} aria-valuenow={0}>
-        <div className="axis-fill is-pos" ref={fillPos} />
-        <div className="axis-fill is-neg" ref={fillNeg} />
-        <div className="axis-mid" />
-        <span className="axis-hint is-a">{hints[0]}</span>
-        <span className="axis-hint is-b">{hints[1]}</span>
-        <div className="axis-knob" ref={knob}><span /></div>
+    <div className={`thumb is-${side} is-${kind}`} ref={zone} style={{ ['--travel' as string]: `${travel}px` }}
+      onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onLostPointerCapture={onUp}
+      onContextMenu={(e) => e.preventDefault()} role="application" aria-label={kind === 'thr' ? 'Throttle: touch and slide up or down' : kind === 'str' ? 'Steering: touch and slide left or right' : 'Joystick'}>
+      <div className="thumb-float" ref={float}>
+        <div className="thumb-track">
+          {kind !== 'stick' && <><div className="thumb-fill is-pos" ref={fillP} /><div className="thumb-fill is-neg" ref={fillN} /></>}
+          {kind === 'thr' && <><span className="thumb-tag is-a">D</span><span className="thumb-tag is-b">R</span></>}
+          {kind === 'str' && <><span className="thumb-tag is-a">L</span><span className="thumb-tag is-b">R</span></>}
+          {kind === 'stick' && <><span className="thumb-tag is-n">D</span><span className="thumb-tag is-s">R</span><span className="thumb-tag is-w">L</span><span className="thumb-tag is-e">R</span></>}
+        </div>
+        <div className="thumb-knob" ref={knob}><span ref={readout} /></div>
       </div>
     </div>
   );
 }
 
-/* ── Two-axis joystick (one thumb: throttle + steering) ─────────── */
-export function Joystick({ armed }: { armed: boolean }) {
-  const base = useRef<HTMLDivElement>(null);
-  const knob = useRef<HTMLDivElement>(null);
-  const active = useRef<number | null>(null);
-  const detent = useDetents();
-
-  const place = (x: number, y: number, spring: boolean) => {
-    const b = base.current!, k = knob.current!;
-    const r = (b.clientWidth - k.offsetWidth) / 2;
-    k.classList.toggle('is-spring', spring);
-    k.style.transform = `translate3d(${(x / 100) * r}px, ${(-y / 100) * r}px, 0)`;
-  };
-  const fromPointer = (e: RPointerEvent) => {
-    const rect = base.current!.getBoundingClientRect();
-    const r = (rect.width - knob.current!.offsetWidth) / 2 || 1;
-    let dx = (e.clientX - rect.left - rect.width / 2) / r;
-    let dy = (rect.top + rect.height / 2 - e.clientY) / r;
-    const m = Math.hypot(dx, dy);
-    if (m > 1) { dx /= m; dy /= m; }
-    return { x: dx * 100, y: dy * 100 };
-  };
-  const onDown = (e: RPointerEvent) => {
-    if (active.current != null) return;
-    active.current = e.pointerId;
-    base.current!.setPointerCapture(e.pointerId);
-    base.current!.classList.add('is-active');
-    manualOverride();
-    nagIfLocked(armed);
-    haptic('light');
-    onMove(e);
-  };
-  const onMove = (e: RPointerEvent) => {
-    if (active.current !== e.pointerId) return;
-    const { x, y } = fromPointer(e);
-    input.set({ thr: y, str: x });
-    detent(Math.hypot(x, y));
-    place(x, y, false);
-  };
-  const onUp = (e: RPointerEvent) => {
-    if (active.current !== e.pointerId) return;
-    active.current = null;
-    base.current!.classList.remove('is-active');
-    input.set({ thr: 0, str: 0 });
-    place(0, 0, true);
-    detent(0);
-  };
-  useEffect(() => () => input.set({ thr: 0, str: 0 }), []);
-
+/* ── Tilt steering read-out (replaces the steering thumb when tilt is on) ── */
+export function TiltPad() {
+  const t = useStore(tilt);
   return (
-    <div className="joy-wrap">
-    <div className="joy" ref={base} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
-      role="application" aria-label="Joystick">
-      <div className="joy-ring" />
-      <div className="joy-cross" />
-      <span className="joy-tag is-n">FWD</span><span className="joy-tag is-s">REV</span>
-      <span className="joy-tag is-w">L</span><span className="joy-tag is-e">R</span>
-      <div className="joy-knob" ref={knob}><span /></div>
-    </div>
-    </div>
-  );
-}
-
-/* ── Tap-and-hold direction pad ────────────────────────────────── */
-const DIRS: { k: string; thr: number; str: number; glyph: string }[] = [
-  { k: 'fl', thr: 100, str: -70, glyph: '↖' }, { k: 'f', thr: 100, str: 0, glyph: '↑' }, { k: 'fr', thr: 100, str: 70, glyph: '↗' },
-  { k: 'l', thr: 0, str: -100, glyph: '←' }, { k: 'c', thr: 0, str: 0, glyph: '' }, { k: 'r', thr: 0, str: 100, glyph: '→' },
-  { k: 'bl', thr: -100, str: -70, glyph: '↙' }, { k: 'b', thr: -100, str: 0, glyph: '↓' }, { k: 'br', thr: -100, str: 70, glyph: '↘' },
-];
-export function DPad({ armed }: { armed: boolean }) {
-  const [held, setHeld] = useState<string | null>(null);
-  const pid = useRef<number | null>(null);
-  const down = (d: (typeof DIRS)[number]) => (e: RPointerEvent<HTMLButtonElement>) => {
-    if (d.k === 'c') return;
-    pid.current = e.pointerId;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    manualOverride();
-    nagIfLocked(armed);
-    haptic('light');
-    setHeld(d.k);
-    input.set({ thr: d.thr, str: d.str });
-  };
-  const up = (e: RPointerEvent) => {
-    if (pid.current !== e.pointerId) return;
-    pid.current = null;
-    setHeld(null);
-    input.set({ thr: 0, str: 0 });
-  };
-  useEffect(() => () => input.set({ thr: 0, str: 0 }), []);
-  return (
-    <div className="dpad-wrap">
-    <div className="dpad" aria-label="Direction pad">
-      {DIRS.map((d) => d.k === 'c'
-        ? <div key="c" className="dpad-hub"><Icon name="gamepad" size={22} /></div>
-        : <button key={d.k} className={`dpad-btn is-${d.k}${held === d.k ? ' is-held' : ''}`}
-            onPointerDown={down(d)} onPointerUp={up} onPointerCancel={up} aria-label={d.k}>{d.glyph}</button>)}
-    </div>
+    <div className="tiltpad">
+      <div className="tilt-dial">
+        <div className="tilt-horizon" style={{ transform: `rotate(${-t.roll}deg)` }} />
+        <div className="tilt-bar"><div className="tilt-fill" style={{ transform: `scaleX(${t.value / 100})` }} /></div>
+        <span className="tilt-deg">{t.value === 0 ? 'Straight' : `${t.value > 0 ? 'R' : 'L'} ${Math.abs(Math.round(t.value))}`}</span>
+      </div>
+      <button className="lg-btn tilt-cal" onClick={calibrateTilt}><Icon name="tilt" size={16} />Centre here</button>
     </div>
   );
 }
@@ -320,21 +295,5 @@ export function EStop({ onStop, disabled }: { onStop(): void; disabled: boolean 
       onPointerDown={(e) => { e.preventDefault(); if (!disabled) onStop(); }}>
       <Icon name="stop" size={22} /><span>STOP</span>
     </button>
-  );
-}
-
-/* ── Tilt steering read-out: a horizon that follows the device ─── */
-export function TiltPad() {
-  const t = useStore(tilt);
-  return (
-    <div className="tiltpad">
-      <div className="axis-head"><span className="lg-label">Tilt steering</span><span className="axis-value">{t.value === 0 ? '0' : `${t.value > 0 ? 'R' : 'L'}${Math.abs(Math.round(t.value))}`}</span></div>
-      <div className="tilt-dial">
-        <div className="tilt-horizon" style={{ transform: `rotate(${-t.roll}deg)` }} />
-        <div className="tilt-bar"><div className="tilt-fill" style={{ transform: `scaleX(${t.value / 100})` }} /></div>
-        <span className="tilt-deg">{t.roll >= 0 ? '+' : ''}{t.roll.toFixed(0)}°</span>
-      </div>
-      <button className="lg-btn tilt-cal" onClick={calibrateTilt}><Icon name="tilt" size={16} />Centre here</button>
-    </div>
   );
 }

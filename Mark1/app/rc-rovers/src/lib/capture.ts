@@ -1,10 +1,11 @@
-/* Camera snapshots (PNG) and clips (WebM/MP4 with the app's sound), with the HUD
-   burned in. The camera view registers its feed element here. Files download on the
-   web and open the share sheet on Android; every capture is noted in Logs → Media.
-   A live stream from another device can only be captured if it allows it (CORS). */
-import { Capacitor } from '@capacitor/core';
+/* Camera snapshots (PNG) and clips (WebM/MP4 with the app's sound), with the HUD burned in.
+   The active camera view registers its feed element here. On Android the files go to the
+   Gallery (Pictures/RC-Rovers, Movies/RC-Rovers) through MediaPlugin.java; on the web they
+   download. Every capture is noted in Logs → Media.
+   A live stream from another device can only be captured if it sends CORS headers
+   (the ESP32-CAM web server does). */
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Directory, Filesystem } from '@capacitor/filesystem';
-import { Share } from '@capacitor/share';
 import { createStore } from '../state/store';
 import { odo } from '../state/odometry';
 import { rover } from '../rover/controller';
@@ -14,11 +15,22 @@ import { bus } from '../state/bus';
 import { audioStream, sfx } from './sound';
 import { haptic } from './native';
 
+interface MediaNative {
+  saveToGallery(o: { path: string; name: string; mime: string }): Promise<{ uri: string; album: string }>;
+  open(o: { uri: string; mime: string }): Promise<void>;
+}
+const Media = registerPlugin<MediaNative>('Media');
+
 type Feed = HTMLCanvasElement | HTMLImageElement;
 let feed: { el: Feed; label: string } | null = null;
-export function registerFeed(el: Feed | null, label: string) { feed = el ? { el, label } : null; }
+/** Called by the camera view. Passing null only clears the feed if `el` is the current one. */
+export function registerFeed(el: Feed | null, label: string, owner?: Feed | null) {
+  if (el) feed = { el, label };
+  else if (!owner || feed?.el === owner) feed = null;
+}
+export const hasFeed = () => !!feed;
 
-export const capture = createStore<{ clip: boolean; since: number; flash: number }>({ clip: false, since: 0, flash: 0 });
+export const capture = createStore<{ clip: boolean; since: number; flash: number; last: { uri: string; mime: string } | null }>({ clip: false, since: 0, flash: 0, last: null });
 
 const stamp = () => new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
 const feedSize = (el: Feed) => el instanceof HTMLCanvasElement ? [el.width, el.height] : [el.naturalWidth, el.naturalHeight];
@@ -40,36 +52,54 @@ function drawHud(g: CanvasRenderingContext2D, W: number, H: number, label: strin
   g.textAlign = 'center'; g.fillText(`${String(hdg).padStart(3, '0')}°`, W / 2, m + 4 * u);
   g.textAlign = 'right'; g.fillText(new Date().toLocaleString(), W - m - 22 * u, m + 4 * u);
   g.textBaseline = 'bottom'; g.textAlign = 'left';
+  const kmh = (o.speed * 3.6).toFixed(1);
   g.font = `300 ${26 * u}px -apple-system, Inter, Roboto, sans-serif`;
-  g.fillText(o.speed.toFixed(1), m + 22 * u, H - m - 2 * u);
-  const w = g.measureText(o.speed.toFixed(1)).width;
+  g.fillText(kmh, m + 22 * u, H - m - 2 * u);
+  const w = g.measureText(kmh).width;
   g.font = `600 ${10 * u}px -apple-system, Inter, Roboto, sans-serif`;
-  g.fillText('m/s', m + 26 * u + w, H - m - 6 * u);
+  g.fillText('km/h', m + 26 * u + w, H - m - 6 * u);
   g.textAlign = 'right';
   g.fillText(`${r.tel.pct ?? '—'}%  ·  ${o.dist.toFixed(1)} m`, W - m - 22 * u, H - m - 6 * u);
-  // reticle
-  g.shadowBlur = 0; g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 1 * u;
-  g.beginPath(); g.arc(W / 2, H * 0.52, 23 * u, 0, Math.PI * 2); g.stroke();
   g.restore();
 }
 
-async function save(blob: Blob, name: string, kind: 'Snapshot' | 'Clip') {
-  if (Capacitor.isNativePlatform()) {
-    const data = await new Promise<string>((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(',')[1]); fr.onerror = rej; fr.readAsDataURL(blob); });
-    const out = await Filesystem.writeFile({ path: name, data, directory: Directory.Cache });
-    await Share.share({ title: `RC-Rovers ${kind.toLowerCase()}`, files: [out.uri], dialogTitle: `Save ${kind.toLowerCase()}` }).catch(() => {});
-  } else {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = name; a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
-  }
-  logEvent('media', `${kind} saved: ${name}`, 'good', { name, bytes: blob.size });
+function blobToB64(b: Blob): Promise<string> {
+  return new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(',')[1] ?? ''); fr.onerror = rej; fr.readAsDataURL(b); });
 }
 
-const blocked = () => toast('This camera stream does not allow capture (needs CORS on the camera)', 'warn', 3200);
+/** Saves to the Gallery on Android (written to the cache in ~1 MB chunks, then moved), downloads on the web. */
+async function save(blob: Blob, name: string, kind: 'Snapshot' | 'Clip'): Promise<string> {
+  const mime = blob.type || (kind === 'Clip' ? 'video/webm' : 'image/png');
+  if (Capacitor.isNativePlatform()) {
+    const CH = 3 * 256 * 1024;   // multiple of 3 so base64 chunks concatenate cleanly
+    for (let at = 0; at < blob.size; at += CH) {
+      const data = await blobToB64(blob.slice(at, at + CH));
+      if (at === 0) await Filesystem.writeFile({ path: name, data, directory: Directory.Cache });
+      else await Filesystem.appendFile({ path: name, data, directory: Directory.Cache });
+    }
+    const { uri } = await Filesystem.getUri({ path: name, directory: Directory.Cache });
+    const out = await Media.saveToGallery({ path: uri, name, mime });
+    capture.set({ last: { uri: out.uri, mime } });
+    logEvent('media', `${kind} saved to ${out.album}: ${name}`, 'good', { name, bytes: blob.size, uri: out.uri });
+    return out.album;
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  logEvent('media', `${kind} saved: ${name}`, 'good', { name, bytes: blob.size });
+  return 'Downloads';
+}
+
+export function openLast() {
+  const l = capture.get().last;
+  if (l && Capacitor.isNativePlatform()) Media.open(l).catch((e) => toast(String(e.message || e), 'warn'));
+}
+
+const blocked = () => toast('This camera stream does not allow capture (it needs CORS headers)', 'warn', 3200);
+const noView = () => toast('Switch to a camera view (front, chase, driver, rear or top) to capture', 'neutral', 2400);
 
 export async function snapshot() {
-  if (!feed) { toast('Open the camera view first', 'neutral'); return; }
+  if (!feed) { noView(); return; }
   const [W, H] = feedSize(feed.el);
   if (!W || !H) { toast('No camera picture yet', 'warn'); return; }
   const c = document.createElement('canvas'); c.width = W; c.height = H;
@@ -82,16 +112,20 @@ export async function snapshot() {
   capture.set({ flash: Date.now() });
   sfx('shutter'); haptic('medium');
   const name = `rc-rovers-${stamp()}.png`;
-  await save(blob, name, 'Snapshot');
-  toast('📸 Snapshot saved', 'good', 1600);
-  bus.emit('snapshot', { name });
+  try {
+    const where = await save(blob, name, 'Snapshot');
+    toast(`📸 Saved to ${where}`, 'good', 1800);
+    bus.emit('snapshot', { name });
+  } catch (e) {
+    toast(`Could not save the photo: ${String((e as Error).message || e)}`, 'bad', 3500);
+  }
 }
 
 let rec: { mr: MediaRecorder; raf: number; chunks: Blob[]; mime: string } | null = null;
 
 export function startClip() {
   if (rec) return;
-  if (!feed) { toast('Open the camera view first', 'neutral'); return; }
+  if (!feed) { noView(); return; }
   if (typeof MediaRecorder === 'undefined') { toast('Clip recording is not supported on this device', 'warn'); return; }
   const [fw, fh] = feedSize(feed.el);
   const H = 720, W = Math.round((fw && fh ? fw / fh : 16 / 9) * H / 2) * 2;
@@ -100,24 +134,29 @@ export function startClip() {
   let lastFeed = Date.now();
   const draw = () => {
     if (!rec) return;
-    if (feed) lastFeed = Date.now();
-    else if (Date.now() - lastFeed > 1500) { stopClip(); return; }   // camera view closed
-    if (feed) { try { g.drawImage(feed.el, 0, 0, W, H); } catch { /* feed not ready */ } drawHud(g, W, H, feed.label); }
-    g.fillStyle = '#FF453A'; g.beginPath(); g.arc(W - 30, H - 30, 7, 0, Math.PI * 2); g.fill();
     rec.raf = requestAnimationFrame(draw);
+    if (feed) {
+      lastFeed = Date.now();
+      try { g.drawImage(feed.el, 0, 0, W, H); } catch { /* feed not ready */ }
+      drawHud(g, W, H, feed.label);
+      g.fillStyle = '#FF453A'; g.beginPath(); g.arc(W - 30, H - 30, 7, 0, Math.PI * 2); g.fill();
+    } else if (Date.now() - lastFeed > 2500) {   // left the camera views: save what we have
+      toast('Left the camera views: clip saved', 'neutral', 2000);
+      stopClip();
+    }
   };
   let stream: MediaStream;
   try {
     g.drawImage(feed.el, 0, 0, W, H);
-    c.getContext('2d')!.getImageData(0, 0, 1, 1);   // throws if the feed is cross-origin
+    g.getImageData(0, 0, 1, 1);   // throws if the feed is cross-origin
     stream = c.captureStream(30);
   } catch { blocked(); return; }
   const audio = audioStream();
   audio?.getAudioTracks().forEach((t) => stream.addTrack(t));
-  const mime = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'].find((m) => MediaRecorder.isTypeSupported(m)) ?? '';
+  const mime = ['video/mp4;codecs=avc1,mp4a', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'].find((m) => MediaRecorder.isTypeSupported(m)) ?? '';
   let mr: MediaRecorder;
-  try { mr = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 4_000_000 } : undefined); } catch { toast('Could not start recording', 'bad'); return; }
-  rec = { mr, raf: 0, chunks: [], mime: mr.mimeType || mime || 'video/webm' };
+  try { mr = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 3_000_000 } : undefined); } catch { toast('Could not start recording', 'bad'); return; }
+  rec = { mr, raf: 0, chunks: [], mime: (mr.mimeType || mime || 'video/webm').split(';')[0] };
   const since = Date.now();
   mr.ondataavailable = (e) => { if (e.data.size) rec?.chunks.push(e.data); };
   mr.onstop = () => {
@@ -126,16 +165,20 @@ export function startClip() {
     stream.getVideoTracks().forEach((t) => t.stop());
     capture.set({ clip: false, since: 0 });
     const blob = new Blob(r.chunks, { type: r.mime });
+    const seconds = Math.round((Date.now() - since) / 1000);
+    if (!blob.size) { toast('The clip was empty', 'warn'); return; }
     const ext = r.mime.includes('mp4') ? 'mp4' : 'webm';
     const name = `rc-rovers-${stamp()}.${ext}`;
-    const seconds = Math.round((Date.now() - since) / 1000);
-    save(blob, name, 'Clip').then(() => { toast(`🎬 Clip saved · ${seconds}s`, 'good', 1800); bus.emit('clip', { name, seconds }); }, () => toast('Could not save the clip', 'bad'));
+    toast('Saving clip…', 'neutral', 1200);
+    save(blob, name, 'Clip').then(
+      (where) => { toast(`🎬 ${seconds}s clip saved to ${where}`, 'good', 2200); bus.emit('clip', { name, seconds }); },
+      (e) => toast(`Could not save the clip: ${String((e as Error).message || e)}`, 'bad', 3500));
   };
   mr.start(1000);
   capture.set({ clip: true, since });
-  draw();
+  rec.raf = requestAnimationFrame(draw);
   haptic('medium');
-  toast('Recording camera clip', 'neutral', 1400);
+  sfx('click');
 }
 
 export function stopClip() { if (rec && rec.mr.state !== 'inactive') rec.mr.stop(); }

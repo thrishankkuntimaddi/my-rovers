@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useStore } from '../state/store';
 import { toasts } from '../state/ui';
 import { Icon } from './Icon';
+import { useBack } from '../lib/back';
 
 /** Glass sheet: centred dialog on wide screens, bottom sheet on narrow ones. */
 export function Sheet({ open, onClose, title, children, wide }: { open: boolean; onClose(): void; title: string; children: ReactNode; wide?: boolean }) {
@@ -14,12 +15,7 @@ export function Sheet({ open, onClose, title, children, wide }: { open: boolean;
     const t = setTimeout(() => setMounted(false), 380);
     return () => clearTimeout(t);
   }, [open]);
-  useEffect(() => {
-    if (!open) return;
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', k);
-    return () => window.removeEventListener('keydown', k);
-  }, [open, onClose]);
+  useBack(open, onClose);
   if (!mounted) return null;
   return createPortal(
     <div className={`sheet-layer${shown ? ' is-shown' : ''}`}>

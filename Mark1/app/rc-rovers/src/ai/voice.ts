@@ -1,9 +1,10 @@
-/* Voice I/O: hold-to-talk recognition + spoken replies.
-   Android → native SpeechRecognizer / TextToSpeech (Capacitor plugins).
-   Browser → Web Speech API. A spoken “stop” acts on the *partial* transcript,
-   i.e. before you finish talking. */
-import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
-import { SpeechRecognition } from '@capacitor-community/speech-recognition';
+/* Voice I/O for Nova.
+   Android → our native Voice plugin (VoicePlugin.java): on-device recognition first, so it
+   works on the rover's Wi-Fi without internet; spoken replies via TextToSpeech.
+   Browser → Web Speech API.
+   Tap the mic to talk (it stops by itself when you pause), or hold it for push-to-talk.
+   A spoken “stop” acts on the partial transcript, before you finish talking. */
+import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
 import { TextToSpeech } from '@capacitor-community/text-to-speech';
 import { createStore } from '../state/store';
 import { settings } from '../state/settings';
@@ -15,10 +16,23 @@ import { haptic } from '../lib/native';
 import { control } from '../rover/controller';
 import { ask, hardStop, setSpeaker } from './copilot';
 
-export const voice = createStore<{ supported: boolean | null; listening: boolean; partial: string; speaking: boolean }>(
-  { supported: null, listening: false, partial: '', speaking: false }, { batched: true });
+export const voice = createStore<{ supported: boolean | null; listening: boolean; partial: string; speaking: boolean; level: number; offline: boolean }>(
+  { supported: null, listening: false, partial: '', speaking: false, level: 0, offline: false }, { batched: true });
 
 const native = Capacitor.isNativePlatform();
+
+interface VoiceNative {
+  available(): Promise<{ available: boolean; onDevice: boolean }>;
+  start(o: { lang: string }): Promise<void>;
+  stop(): Promise<void>;
+  cancel(): Promise<void>;
+  addListener(e: 'partial', f: (d: { text: string }) => void): Promise<PluginListenerHandle>;
+  addListener(e: 'final', f: (d: { text: string; alts: string[] }) => void): Promise<PluginListenerHandle>;
+  addListener(e: 'error', f: (d: { code: number; onDevice: boolean }) => void): Promise<PluginListenerHandle>;
+  addListener(e: 'state', f: (d: { listening: boolean; onDevice: boolean }) => void): Promise<PluginListenerHandle>;
+  addListener(e: 'level', f: (d: { rms: number }) => void): Promise<PluginListenerHandle>;
+}
+const Voice = registerPlugin<VoiceNative>('Voice');
 
 interface WebRec {
   lang: string; interimResults: boolean; continuous: boolean; maxAlternatives: number;
@@ -32,14 +46,49 @@ const WebRecCtor = (): (new () => WebRec) | null => {
 };
 
 let webRec: WebRec | null = null;
-let handles: PluginListenerHandle[] = [];
 let finalized = true;
 let stopFired = false;
+let tailTimer: ReturnType<typeof setTimeout> | null = null;
+
+/* Native error codes (android.speech.SpeechRecognizer) → what to tell the driver. */
+const NATIVE_ERRORS: Record<number, [string, 'warn' | 'bad' | 'quiet']> = {
+  1: ['Voice needs the offline English pack on the rover’s Wi-Fi: Android Settings → Google → Voice → Offline speech recognition → download English.', 'bad'],
+  2: ['Voice needs the offline English pack on the rover’s Wi-Fi: Android Settings → Google → Voice → Offline speech recognition → download English.', 'bad'],
+  3: ['The microphone is busy in another app.', 'bad'],
+  4: ['The speech service had a problem. Try again.', 'warn'],
+  5: ['', 'quiet'],
+  6: ['I didn’t hear anything. Tap the mic and speak.', 'warn'],
+  7: ['I didn’t catch that. Try again, a little slower.', 'warn'],
+  8: ['Voice is busy, try again in a second.', 'warn'],
+  9: ['Allow the microphone for RC-Rovers in Android settings.', 'bad'],
+  11: ['The speech service disconnected. Try again.', 'warn'],
+  12: ['This voice language isn’t installed. Pick US/UK/India in Settings → Nova, or download it in Google → Voice.', 'bad'],
+  13: ['The voice language pack is still downloading. Try again in a minute.', 'warn'],
+};
+
+let wired: Promise<void> | null = null;
+function wireNative() {
+  if (wired) return wired;
+  wired = (async () => {
+    await Voice.addListener('partial', (d) => onPartial(d.text));
+    await Voice.addListener('final', (d) => { if (d.text) voice.set({ partial: d.text }); finalize(); });
+    await Voice.addListener('state', (d) => { voice.set({ offline: d.onDevice }); if (!d.listening) scheduleTail(1600); });
+    await Voice.addListener('level', (d) => voice.set({ level: Math.max(0, Math.min(1, (d.rms + 2) / 12)) }));
+    await Voice.addListener('error', (d) => {
+      const [msg, tone] = NATIVE_ERRORS[d.code] ?? [`Voice error ${d.code}`, 'warn'];
+      if (voice.get().partial.trim() && (d.code === 6 || d.code === 7)) { finalize(); return; }   // we already heard something
+      finalized = true;
+      voice.set({ listening: false, level: 0 });
+      if (tone !== 'quiet') { toast(msg, tone === 'bad' ? 'bad' : 'warn', tone === 'bad' ? 6000 : 2600); logEvent('voice', `Voice: ${msg}`, tone === 'bad' ? 'bad' : 'warn'); }
+    });
+  })();
+  return wired;
+}
 
 export async function checkVoice(): Promise<boolean> {
   if (voice.get().supported != null) return voice.get().supported!;
   let ok = false;
-  if (native) { try { ok = (await SpeechRecognition.available()).available; } catch { ok = false; } }
+  if (native) { try { const a = await Voice.available(); ok = a.available; voice.set({ offline: a.onDevice }); } catch { ok = false; } }
   else ok = !!WebRecCtor();
   voice.set({ supported: ok });
   return ok;
@@ -49,22 +98,28 @@ function onPartial(text: string) {
   voice.set({ partial: text });
   const t = text.toLowerCase();
   if (!stopFired && /\b(emergency|abort)\b/.test(t)) { stopFired = true; control.estop(); haptic('heavy'); }
-  else if (!stopFired && /\b(stop|halt|freeze|brake)\b/.test(t) && !/\brecord/.test(t)) { stopFired = true; hardStop(); haptic('medium'); }
+  else if (!stopFired && /\b(stop|halt|freeze|brake)\b/.test(t) && !/\b(record|video|recording)/.test(t)) { stopFired = true; hardStop(); haptic('medium'); }
+}
+
+function scheduleTail(ms: number) {
+  if (tailTimer) clearTimeout(tailTimer);
+  tailTimer = setTimeout(finalize, ms);   // safety net if the recognizer never sends a final result
 }
 
 function finalize() {
+  if (tailTimer) { clearTimeout(tailTimer); tailTimer = null; }
   if (finalized) return;
   finalized = true;
   const text = voice.get().partial.trim();
-  voice.set({ listening: false });
+  voice.set({ listening: false, level: 0 });
   if (text) { bus.emit('voice', { text }); ask(text, 'voice'); }
-  setTimeout(() => voice.set({ partial: '' }), 2500);
+  setTimeout(() => { if (finalized) voice.set({ partial: '' }); }, 2500);
 }
 
 export async function startListening() {
   if (voice.get().listening) return;
   if (!(await checkVoice())) {
-    toast(native ? 'Speech recognition is not available on this device' : 'Voice needs Chrome (Web Speech API)', 'warn');
+    toast(native ? 'Speech recognition is not available on this device. Install or update the Google app.' : 'Voice needs Chrome (Web Speech API)', 'warn', 4000);
     return;
   }
   stopTalking();
@@ -74,15 +129,9 @@ export async function startListening() {
   const lang = settings.get().voiceLang;
   try {
     if (native) {
-      const perm = await SpeechRecognition.checkPermissions();
-      if (perm.speechRecognition !== 'granted') {
-        const req = await SpeechRecognition.requestPermissions();
-        if (req.speechRecognition !== 'granted') throw new Error('Microphone permission denied');
-      }
-      for (const h of handles) h.remove(); handles = [];
-      handles.push(await SpeechRecognition.addListener('partialResults', (d) => { if (d.matches?.[0]) onPartial(d.matches[0]); }));
-      handles.push(await SpeechRecognition.addListener('listeningState', (d) => { if (d.status === 'stopped') setTimeout(finalize, 150); }));
-      await SpeechRecognition.start({ language: lang, partialResults: true, popup: false, maxResults: 1 });
+      await wireNative();
+      await Voice.start({ lang });
+      scheduleTail(12000);
     } else {
       const Ctor = WebRecCtor()!;
       webRec = new Ctor();
@@ -96,16 +145,20 @@ export async function startListening() {
   } catch (e) {
     finalized = true;
     voice.set({ listening: false });
-    toast(String((e as Error).message || e), 'bad');
-    logEvent('voice', `Voice error: ${String((e as Error).message || e)}`, 'bad');
+    const msg = String((e as Error).message || e);
+    toast(/denied/i.test(msg) ? 'Allow the microphone to talk to Nova' : msg, 'bad');
+    logEvent('voice', `Voice error: ${msg}`, 'bad');
   }
 }
 
+/** Finish now and act on what was heard (push-to-talk release, or tapping the mic again). */
 export async function stopListening() {
   if (!voice.get().listening) return;
-  try { if (native) await SpeechRecognition.stop(); else webRec?.stop(); } catch { /* ignore */ }
-  setTimeout(finalize, native ? 450 : 900);   // give the recognizer a moment to deliver the tail
+  try { if (native) await Voice.stop(); else webRec?.stop(); } catch { /* ignore */ }
+  scheduleTail(native ? 1500 : 900);   // the final result normally arrives well before this
 }
+
+export function toggleListening() { if (voice.get().listening) stopListening(); else startListening(); }
 
 /* ── speaking ──────────────────────────────────────────────────── */
 export function speak(text: string) {

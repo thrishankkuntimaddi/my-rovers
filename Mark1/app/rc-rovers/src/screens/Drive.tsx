@@ -1,48 +1,111 @@
+/* The cockpit. The active view (camera / map / gauges) fills the screen; the thumb controls
+   float over the left and right edges where your hands already are:
+     left  — throttle (touch anywhere, slide up/down)      · Speed hold above it
+     right — steering (touch anywhere, slide left/right)   · STOP above it
+     centre bottom — speed, drive mode, ignition, Nova mic
+   Full view hides everything but the controls; ✕ or Android back brings it back.
+   Every widget subscribes only to the values it shows, so telemetry doesn't re-render
+   the whole cockpit (that was the lag). */
 import { useEffect, useState } from 'react';
-import { AxisControl, DPad, EStop, Ignition, Joystick, ModePicker, Segmented, TiltPad } from '../components/Controls';
-import { Gauge, RoverTopView } from '../components/Hud';
+import { EStop, Ignition, ModePicker, ThumbZone, TiltPad } from '../components/Controls';
 import { BatteryGlyph, Icon, SignalGlyph } from '../components/Icon';
-import { MicButton, TrailMap } from '../components/Futuristic';
-import { CameraView } from '../components/Camera';
+import { MicButton } from '../components/Futuristic';
+import { ViewStage } from '../components/Views';
+import { setView, stepView, viewLabel, VIEWS } from '../state/views';
 import { Sheet } from '../components/Common';
-import { useStore } from '../state/store';
-import { settings, type HudView } from '../state/settings';
+import { useSel, useStore } from '../state/store';
+import { settings } from '../state/settings';
 import { control, cruise, rover } from '../rover/controller';
 import { COURSES } from '../sim/world';
 import { fmtTime, PENALTY_MS, startTrial, stopTrial, trial } from '../sim/trials';
 import { haptic, keepAwake } from '../lib/native';
+import { useBack } from '../lib/back';
+import { capture, snapshot, toggleClip } from '../lib/capture';
 import { nova } from '../ai/copilot';
 import { voice } from '../ai/voice';
 import { allMissions, autopilot, missionMs, recorder, runMission, startRecording, stopMission, stopRecording } from '../missions/missions';
 import { missions as missionStore } from '../missions/missions';
 import { academy, LESSONS, stopLesson } from '../state/academy';
 import { startKeyboard, startTilt, stopKeyboard, stopTilt } from '../input/sources';
-import { odo, resetOdo } from '../state/odometry';
+import { odo } from '../state/odometry';
+import { modeSpec } from '../rover/protocol';
 import { toast } from '../state/ui';
 
-function NovaStrip() {
+const useNow = (on: boolean, ms = 500) => {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { if (!on) return; const t = setInterval(() => setNow(Date.now()), ms); return () => clearInterval(t); }, [on, ms]);
+  return now;
+};
+const mmss = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+
+/* ── top bar ───────────────────────────────────────────────────── */
+function LinkChip() {
+  const status = useSel(rover, (s) => s.status), kind = useSel(rover, (s) => s.kind);
+  if (status === 'lost') return <span className="ck-chip is-red"><span className="spinner sm" />Reconnecting</span>;
+  if (kind === 'demo') return <span className="ck-chip"><i className="dot is-blue" />Demo</span>;
+  return <span className="ck-chip is-green"><i className="dot" />{kind === 'http' ? 'Basic' : 'Live'}</span>;
+}
+function Stats() {
+  const rssi = useSel(rover, (s) => s.tel.rssi), lat = useSel(rover, (s) => s.latency), pct = useSel(rover, (s) => s.tel.pct);
+  const live = useSel(rover, (s) => s.status === 'connected');
+  const est = useSel(rover, (s) => (s.tel.estMin == null ? null : Math.round(s.tel.estMin)));
+  const tone = pct == null ? '' : pct <= 15 ? ' is-red' : pct <= 30 ? ' is-orange' : '';
+  return (
+    <div className="ck-stats">
+      <span className="ck-stat"><SignalGlyph rssi={rssi} live={live} /><span>{rssi ?? (live ? 'Wi-Fi' : '—')}<small>{rssi != null ? 'dBm' : ''}</small></span></span>
+      <span className="ck-stat hide-xs"><Icon name="pulse" size={14} /><span>{lat ?? '—'}<small>ms</small></span></span>
+      <span className={`ck-stat${tone}`}><BatteryGlyph pct={pct} /><span>{pct ?? '—'}<small>%</small></span>{est != null && <small className="ck-est hide-sm">~{est} min</small>}</span>
+    </div>
+  );
+}
+function ClipButton() {
+  const cap = useStore(capture);
+  const now = useNow(cap.clip);
+  return (
+    <button className={`ck-btn rec-btn${cap.clip ? ' is-on' : ''}`} onClick={toggleClip} aria-label={cap.clip ? 'Stop video' : 'Record video'}>
+      <Icon name={cap.clip ? 'stop' : 'video'} size={17} />{cap.clip && <span className="ck-rec-t">{mmss(Math.floor((now - cap.since) / 1000))}</span>}
+    </button>
+  );
+}
+
+/* ── view switcher: ◀ name ▶ + dots (or swipe the picture) ─────── */
+function ViewSwitcher() {
+  const view = useSel(settings, (s) => s.view);
+  return (
+    <div className="ck-views" onPointerDown={(e) => e.stopPropagation()}>
+      <button className="ck-arrow" onClick={() => stepView(-1)} aria-label="Previous view"><Icon name="back" size={16} /></button>
+      <div className="ck-view-name"><b>{viewLabel(view)}</b>
+        <span className="ck-dots">{VIEWS.map((v) => <button key={v.id} className={v.id === view ? 'is-on' : ''} onClick={() => setView(v.id)} aria-label={v.label} />)}</span>
+      </div>
+      <button className="ck-arrow" onClick={() => stepView(1)} aria-label="Next view"><Icon name="chevron" size={16} /></button>
+    </div>
+  );
+}
+
+/* ── Nova / mission / route-recording strip ────────────────────── */
+function NovaBubble() {
   const v = useStore(voice);
-  const n = useStore(nova);
+  const reply = useSel(nova, (n) => n.lastReply);
   const ap = useStore(autopilot);
-  const rec = useStore(recorder);
-  const [, tick] = useState(0);
-  useEffect(() => { if (!rec.on) return; const t = setInterval(() => tick((x) => x + 1), 500); return () => clearInterval(t); }, [rec.on]);
-  let body;
-  if (v.listening || v.partial) body = <span className="strip-text is-live">{v.partial || 'Listening…'}</span>;
-  else if (ap.running) body = (
-    <span className="strip-mission">
+  const rec = useSel(recorder, (r) => (r.on ? r.since : 0));
+  const now = useNow(!!rec);
+  const [shown, setShown] = useState('');
+  useEffect(() => { if (!reply) return; setShown(reply); const t = setTimeout(() => setShown(''), 7000); return () => clearTimeout(t); }, [reply]);
+  let body = null;
+  if (ap.running) body = (
+    <span className="ck-mission">
       <b>{ap.running.name}</b>
-      <span className="strip-bar"><i style={{ transform: `scaleX(${ap.progress})` }} /></span>
-      <span className="lg-text-2">{Math.max(0, (ap.total - ap.elapsed) / 1000).toFixed(1)} s</span>
-      <button className="lg-btn strip-stop" onClick={() => stopMission('stopped by you')}><Icon name="stop" size={15} />Take over</button>
+      <span className="ck-bar"><i style={{ transform: `scaleX(${ap.progress})` }} /></span>
+      <span>{Math.max(0, (ap.total - ap.elapsed) / 1000).toFixed(1)} s</span>
+      <button className="ck-pill" onClick={() => stopMission('stopped by you')}><Icon name="stop" size={13} />Take over</button>
     </span>
   );
-  else body = <span className="strip-text"><Icon name="spark" size={15} />{n.lastReply || 'Hold the mic and talk to Nova: “forward slowly for 2 seconds”'}</span>;
+  else if (v.listening || v.partial) body = <span className="ck-say is-live"><i className="ck-lvl" style={{ transform: `scaleX(${0.15 + v.level * 0.85})` }} />{v.partial || (v.offline ? 'Listening (offline)…' : 'Listening…')}</span>;
+  else if (shown) body = <span className="ck-say"><Icon name="spark" size={14} />{shown}</span>;
   return (
-    <div className="nova-strip lg-tile">
-      <MicButton />
-      <div className="strip-body">{body}</div>
-      {rec.on && <span className="rec-pill"><i />REC {Math.floor((Date.now() - rec.since) / 1000)}s</span>}
+    <div className="ck-nova">
+      {body && <div className="ck-bubble">{body}</div>}
+      {rec > 0 && <span className="ck-route-rec" onPointerDown={(e) => e.stopPropagation()} onClick={() => { const m = stopRecording(true); toast(m ? `Saved “${m.name}” to Missions` : 'Nothing recorded', m ? 'good' : 'neutral'); }}><i />ROUTE {mmss(Math.floor((now - rec) / 1000))} · tap to save</span>}
     </div>
   );
 }
@@ -52,11 +115,11 @@ function LessonBanner() {
   if (!a.lesson) return null;
   const l = LESSONS.find((x) => x.id === a.lesson)!;
   return (
-    <div className="lesson-banner">
-      <Icon name="school" size={17} />
-      <div className="lesson-text"><b>{l.title}</b><span>{l.goal}</span></div>
-      <span className="lesson-meter"><i style={{ transform: `scaleX(${a.lessonProgress})` }} /></span>
-      <button className="lg-icon-btn sm" onClick={stopLesson} aria-label="End lesson"><Icon name="x" size={15} /></button>
+    <div className="ck-banner">
+      <Icon name="school" size={16} />
+      <div className="ck-banner-text"><b>{l.title}</b><span>{l.goal}</span></div>
+      <span className="ck-meter"><i style={{ transform: `scaleX(${a.lessonProgress})` }} /></span>
+      <button className="ck-x" onClick={stopLesson} aria-label="End lesson"><Icon name="x" size={14} /></button>
     </div>
   );
 }
@@ -71,44 +134,63 @@ function TrialBanner() {
   if (t.phase === 'done' && t.result) {
     const r = t.result;
     return (
-      <div className="trial-banner is-done">
-        <span className="trial-icon">{r.best ? '🏆' : '🏁'}</span>
-        <div className="trial-text">
+      <div className="ck-banner is-done">
+        <span>{r.best ? '🏆' : '🏁'}</span>
+        <div className="ck-banner-text">
           <b>{c.name} · {fmtTime(r.ms)}{r.best && <em className="trial-new">{r.prevBest == null ? 'First run' : 'New best'}</em>}</b>
-          <span>{r.bumps ? `${fmtTime(r.raw)} + ${r.bumps} bump${r.bumps > 1 ? 's' : ''}` : 'Clean run'} · par {fmtTime(r.par)}{r.ms <= r.par ? ' ✓' : ''}{!r.best && r.prevBest != null ? ` · best ${fmtTime(r.prevBest)}` : ''}</span>
+          <span>{r.bumps ? `${fmtTime(r.raw)} + ${r.bumps} bump${r.bumps > 1 ? 's' : ''}` : 'Clean run'} · par {fmtTime(r.par)}{r.ms <= r.par ? ' ✓' : ''}</span>
         </div>
-        <button className="lg-btn trial-btn" onClick={() => startTrial(c.id)}><Icon name="refresh" size={14} />Retry</button>
-        <button className="lg-icon-btn sm" onClick={stopTrial} aria-label="Close trial"><Icon name="x" size={14} /></button>
+        <button className="ck-pill" onClick={() => startTrial(c.id)}><Icon name="refresh" size={13} />Retry</button>
+        <button className="ck-x" onClick={stopTrial} aria-label="Close trial"><Icon name="x" size={14} /></button>
       </div>
     );
   }
   const ms = t.phase === 'running' ? Math.max(0, now - t.t0) + t.bumps * PENALTY_MS : 0;
   return (
-    <div className="trial-banner">
-      <span className="trial-icon">{c.icon}</span>
-      <div className="trial-text">
+    <div className="ck-banner">
+      <span>{c.icon}</span>
+      <div className="ck-banner-text">
         <b>{c.name}</b>
         <span>{t.phase === 'countdown' ? `Get ready… ${t.count}` : `Gate ${Math.min(t.next + 1, c.gates.length)}/${c.gates.length}`}{t.bumps ? ` · ${t.bumps}× +${PENALTY_MS / 1000}s` : ''}{best ? ` · best ${fmtTime(best)}` : ''}</span>
       </div>
-      <span className="trial-time">{fmtTime(ms)}</span>
-      <span className="trial-gates">{c.gates.map((_, i) => <i key={i} className={i < t.next ? 'is-done' : i === t.next ? 'is-next' : ''} />)}</span>
-      <button className="lg-icon-btn sm" onClick={stopTrial} aria-label="Quit trial"><Icon name="x" size={14} /></button>
+      <span className="ck-trial-time">{fmtTime(ms)}</span>
+      <button className="ck-x" onClick={stopTrial} aria-label="Quit trial"><Icon name="x" size={14} /></button>
     </div>
   );
 }
 
-function CruiseButton() {
+/* ── speed hold (cruise control): lives next to the throttle it holds ── */
+function SpeedHold() {
   const c = useStore(cruise);
+  const armed = useSel(rover, (s) => s.status === 'connected' && s.tel.armed);
   return (
-    <button className={`cruise-btn${c.on ? ' is-on' : ''}`} onClick={() => control.cruise()} aria-pressed={c.on} aria-label="Cruise control">
-      <Icon name="cruise" size={15} /><span>{c.on ? `Cruise ${c.thr > 0 ? '▲' : '▼'} ${Math.abs(c.thr)}%` : 'Cruise'}</span>
+    <button className={`ck-hold${c.on ? ' is-on' : ''}${armed ? '' : ' is-off'}`} onClick={() => control.cruise()} aria-pressed={c.on} aria-label="Speed hold">
+      <Icon name="cruise" size={17} />
+      <span><b>{c.on ? `Holding ${Math.abs(c.thr)}% ${c.thr > 0 ? '▲' : '▼'}` : 'Speed hold'}</b><small>{c.on ? 'Touch throttle or tap to release' : 'Locks your current speed'}</small></span>
     </button>
+  );
+}
+
+/* ── speed cluster ─────────────────────────────────────────────── */
+function SpeedCluster() {
+  const kmh = useSel(odo, (o) => Math.round(o.speed * 36) / 10);
+  const thr = useSel(rover, (s) => s.tel.thr), mode = useSel(rover, (s) => s.tel.mode), armed = useSel(rover, (s) => s.tel.armed);
+  const gear = !armed ? 'P' : thr > 1 ? 'D' : thr < -1 ? 'R' : 'N';
+  const cap = modeSpec(mode).cap;
+  return (
+    <div className={`ck-speed${gear === 'R' ? ' is-rev' : ''}`}>
+      <span className={`ck-gear is-${gear}`}>{gear}</span>
+      <b className="ck-kmh">{kmh.toFixed(1)}</b>
+      <span className="ck-unit">km/h</span>
+      <span className="ck-out"><i style={{ transform: `scaleX(${Math.min(1, Math.abs(thr) / 100)})` }} /><em style={{ left: `${cap}%` }} /></span>
+    </div>
   );
 }
 
 function MissionPicker({ open, onClose }: { open: boolean; onClose(): void }) {
   useStore(missionStore);
   const r = useStore(rover);
+  const rec = useStore(recorder);
   const run = (id: string) => {
     const m = allMissions().find((x) => x.id === id)!;
     const go = () => { const res = runMission(m); if (!res.ok) toast(res.reason!, 'warn'); else onClose(); };
@@ -117,8 +199,20 @@ function MissionPicker({ open, onClose }: { open: boolean; onClose(): void }) {
   const t = useStore(trial);
   const demo = r.kind === 'demo' && r.status === 'connected';
   const go = (id: string) => { const res = startTrial(id); if (!res.ok) toast(res.reason!, 'warn'); else onClose(); };
+  const toggleRoute = () => {
+    if (rec.on) { const m = stopRecording(true); toast(m ? `Saved “${m.name}” to Missions` : 'Nothing recorded', m ? 'good' : 'neutral'); }
+    else { startRecording(); toast('Recording your route: drive, then tap ROUTE to save', 'neutral', 2400); onClose(); }
+    haptic('medium');
+  };
   return (
     <Sheet open={open} onClose={onClose} title="Missions & trials">
+      <h3 className="section-title sheet-sub"><Icon name="record" size={15} />Route recorder</h3>
+      <div className="pick-list">
+        <button className="pick lg-tile lg-pressable" onClick={toggleRoute}>
+          <span className="pick-icon">{rec.on ? '■' : '●'}</span>
+          <span className="pick-text"><b>{rec.on ? 'Stop and save route' : 'Record a route'}</b><small>Saves your driving as a mission you can replay</small></span>
+        </button>
+      </div>
       <h3 className="section-title sheet-sub"><Icon name="flag" size={15} />Time trials {!demo && <small>· demo rover</small>}</h3>
       <div className="pick-list">
         {COURSES.map((c) => (
@@ -144,134 +238,76 @@ function MissionPicker({ open, onClose }: { open: boolean; onClose(): void }) {
   );
 }
 
-/** Power rail: battery bar, voltage and estimated drive time left. */
-function PowerRail() {
-  const { tel } = useStore(rover);
-  const pct = tel.pct;
-  const tone = pct == null ? '' : pct <= 15 ? ' is-red' : pct <= 30 ? ' is-orange' : '';
-  const left = tel.estMin == null ? null : tel.estMin >= 10 ? `${Math.round(tel.estMin)} min` : `${Math.floor(tel.estMin)}:${String(Math.round((tel.estMin % 1) * 60)).padStart(2, '0')}`;
-  return (
-    <div className={`power${tone}`}>
-      <div className="power-head"><span className="lg-label">Power</span><b>{pct != null ? `${pct}%` : '—'}</b></div>
-      <div className="power-bar">{Array.from({ length: 20 }, (_, i) => <i key={i} className={pct != null && i < Math.ceil(pct / 5) ? 'is-on' : ''} />)}</div>
-      <div className="power-sub"><span>{tel.vbat != null ? `${tel.vbat.toFixed(2)} V` : 'no sensor'}</span><span>{left ? `${left} left` : 'learning…'}</span></div>
-    </div>
-  );
-}
-
-/** Trip read-out: estimated speed, distance, top speed, drive time. */
-function TripPanel() {
-  const o = useStore(odo);
-  const { tel } = useStore(rover);
-  const up = tel.up;
-  const cells: [string, string, string][] = [
-    ['Speed', o.speed.toFixed(1), 'm/s'],
-    ['Distance', o.dist < 100 ? o.dist.toFixed(1) : Math.round(o.dist).toString(), 'm'],
-    ['Top speed', o.maxSpeed.toFixed(1), 'm/s'],
-    ['Session', `${Math.floor(up / 60)}:${String(up % 60).padStart(2, '0')}`, 'min'],
-  ];
-  return (
-    <div className="trip">
-      {cells.map(([k, v, u]) => <div key={k} className="trip-cell"><span className="lg-label">{k}</span><b>{v}<small>{u}</small></b></div>)}
-    </div>
-  );
-}
-
 export function Drive({ onBack, onTelemetry, onSettings }: { onBack(): void; onTelemetry(): void; onSettings(): void }) {
-  const r = useStore(rover);
-  const s = useStore(settings);
-  const rec = useStore(recorder);
+  const status = useSel(rover, (s) => s.status);
+  const name = useSel(rover, (s) => s.info?.name ?? 'MARK 1');
+  const armed = useSel(rover, (s) => s.tel.armed);
+  const mode = useSel(rover, (s) => s.tel.mode);
+  const layout = useSel(settings, (s) => s.layout), swap = useSel(settings, (s) => s.swapSides);
+  const tiltOn = useSel(settings, (s) => s.steerSource === 'tilt'), awake = useSel(settings, (s) => s.keepAwake);
   const [picker, setPicker] = useState(false);
-  const [camWanted, setCamFull] = useState(false);
-  const { tel } = r;
-  const live = r.status === 'connected';
-  const camFull = camWanted && s.hudView === 'camera';
+  const [focus, setFocus] = useState(false);
+  const live = status === 'connected';
 
   useEffect(() => { control.setDriving(true); startKeyboard(); return () => { control.setDriving(false); stopKeyboard(); }; }, []);
-  useEffect(() => { keepAwake(s.keepAwake); return () => keepAwake(false); }, [s.keepAwake]);
-  useEffect(() => { if (s.steerSource === 'tilt') { startTilt(); return () => stopTilt(); } }, [s.steerSource]);
+  useEffect(() => { keepAwake(awake); return () => keepAwake(false); }, [awake]);
+  useEffect(() => { if (tiltOn) { startTilt(); return () => stopTilt(); } }, [tiltOn]);
+  useBack(true, onBack);
+  useBack(focus, () => setFocus(false));
 
-  const link = r.status === 'lost'
-    ? <span className="lg-chip is-red"><span className="spinner sm" />Reconnecting</span>
-    : r.kind === 'demo' ? <span className="lg-chip"><i className="dot is-blue" />Demo</span>
-    : r.kind === 'http' ? <span className="lg-chip is-green"><i className="dot" />Basic</span>
-    : <span className="lg-chip is-green"><i className="dot" />Live</span>;
-  const batTone = tel.pct == null ? '' : tel.pct <= 15 ? ' is-red' : tel.pct <= 30 ? ' is-orange' : '';
-  const toggleRec = () => { if (rec.on) { const m = stopRecording(true); toast(m ? `Saved “${m.name}” to Missions` : 'Nothing recorded', m ? 'good' : 'neutral'); } else { startRecording(); toast('Recording your drive', 'neutral', 1600); } haptic('medium'); };
-  const toggleCam = () => { settings.set({ hudView: s.hudView === 'camera' ? 'gauge' : 'camera' }); haptic('light'); };
-
-  const steer = s.layout === 'joystick' ? <Joystick armed={tel.armed} />
-    : s.steerSource === 'tilt' ? <TiltPad />
-    : <AxisControl axis="str" armed={tel.armed} label="Steering" hints={['L', 'R']} />;
+  const left: 'thr' | 'str' | 'stick' | null = layout === 'stick' ? (swap ? null : 'stick') : swap ? 'str' : 'thr';
+  const right: 'thr' | 'str' | 'stick' | null = layout === 'stick' ? (swap ? 'stick' : null) : swap ? 'thr' : 'str';
+  const zone = (side: 'left' | 'right', kind: typeof left) => {
+    if (kind === 'str' && tiltOn) return <div className={`thumb is-${side} is-tilt`}><TiltPad /></div>;
+    if (!kind) return <div className={`thumb is-${side} is-empty`} />;
+    return <ThumbZone key={`${side}-${kind}`} kind={kind} side={side} armed={armed} steerTilt={tiltOn} />;
+  };
+  const estop = () => { stopMission('emergency stop', true); control.estop(); haptic('heavy'); };
 
   return (
-    <section className={`screen drive cockpit layout-${s.layout}${live ? '' : ' is-offline'}${camFull ? ' is-camfull' : ''}${tel.armed ? ' is-armed' : ''}`}>
-      {camFull && <div className="cam-backdrop"><CameraView full onToggleFull={() => setCamFull(false)} /></div>}
-      <header className="lg-bar drive-bar">
-        <button className="lg-icon-btn" onClick={onBack} aria-label="Back"><Icon name="back" size={18} /></button>
-        <div className="drive-title"><b>{r.info?.name ?? 'MARK 1'}</b>{link}</div>
-        <div className="drive-stats">
-          <span className="stat stat-signal" title="Signal"><SignalGlyph rssi={tel.rssi} live={live} /><span>{tel.rssi != null ? tel.rssi : live ? 'Wi-Fi' : '—'}<small>dBm</small></span></span>
-          <span className="stat hide-xs" title="Latency"><Icon name="pulse" size={14} /><span>{r.latency != null ? r.latency : '—'}<small>ms</small></span></span>
-          <span className={`stat${batTone}`} title="Battery"><BatteryGlyph pct={tel.pct} /><span>{tel.pct != null ? tel.pct : '—'}<small>%</small></span></span>
-        </div>
-        <div className="head-actions">
-          <button className={`lg-icon-btn${s.hudView === 'camera' ? ' is-on' : ''}`} onClick={toggleCam} aria-label="Camera view"><Icon name="camera" size={17} /></button>
-          <button className={`lg-icon-btn rec-btn${rec.on ? ' is-on' : ''}`} onClick={toggleRec} aria-label={rec.on ? 'Stop recording' : 'Record drive'}><Icon name="record" size={16} /></button>
-          <button className="lg-icon-btn" onClick={() => setPicker(true)} aria-label="Missions"><Icon name="route" size={17} /></button>
-          <button className="lg-icon-btn hide-xs" onClick={onTelemetry} aria-label="Telemetry"><Icon name="pulse" size={17} /></button>
-          <button className="lg-icon-btn" onClick={onSettings} aria-label="Settings"><Icon name="gear" size={17} /></button>
+    <section className={`screen ck${focus ? ' is-focus' : ''}${live ? '' : ' is-offline'}${armed ? ' is-armed' : ''}`}>
+      <ViewStage />
+
+      <header className="ck-top">
+        <button className="ck-btn" onClick={onBack} aria-label="Back to garage"><Icon name="back" size={18} /></button>
+        <div className="ck-title"><b>{name}</b><LinkChip /></div>
+        <Stats />
+        <div className="ck-actions">
+          <button className="ck-btn" onClick={snapshot} aria-label="Take photo"><Icon name="aperture" size={17} /></button>
+          <ClipButton />
+          <button className="ck-btn" onClick={() => setFocus(true)} aria-label="Full view"><Icon name="expand" size={17} /></button>
+          <button className="ck-btn" onClick={() => setPicker(true)} aria-label="Missions"><Icon name="route" size={17} /></button>
+          <button className="ck-btn hide-xs" onClick={onTelemetry} aria-label="Telemetry"><Icon name="pulse" size={17} /></button>
+          <button className="ck-btn" onClick={onSettings} aria-label="Settings"><Icon name="gear" size={17} /></button>
         </div>
       </header>
+      {focus && (
+        <button className="ck-exit" onClick={() => setFocus(false)} aria-label="Exit full view"><Icon name="shrink" size={17} /><span>Exit full view</span></button>
+      )}
 
-      <div className="drive-grid">
-        <div className="zone zone-left lg-tile">
-          {s.layout === 'dual' ? <AxisControl axis="thr" armed={tel.armed} label="Throttle" hints={['FWD', 'REV']} /> : <DPad armed={tel.armed} />}
-          <CruiseButton />
-        </div>
+      <div className="ck-center-top">
+        <ViewSwitcher />
+        <LessonBanner />
+        <TrialBanner />
+        <NovaBubble />
+      </div>
 
-        <div className="zone zone-center">
-          <LessonBanner />
-          <TrialBanner />
-          {!camFull && (
-            <div className={`hud lg-tile is-${s.hudView}`}>
-              <div className="hud-top">
-                <Segmented<HudView> value={s.hudView} onChange={(v) => settings.set({ hudView: v })}
-                  options={[{ id: 'gauge', label: 'Gauge' }, { id: 'map', label: 'Map' }, { id: 'camera', label: 'Camera' }]} />
-                <div className="hud-flags">
-                  {s.hudView === 'map' && <button className="lg-btn hud-reset" onClick={() => { resetOdo(); haptic('light'); }}>Reset</button>}
-                  <span className={`hud-flag${tel.armed ? ' is-armed' : ''}`}><i />{tel.armed ? 'ARMED' : 'SAFE'}</span>
-                </div>
-              </div>
-              <div className={`hud-main is-${s.hudView}`}>
-                {s.hudView === 'map' ? <TrailMap />
-                  : s.hudView === 'camera' ? <CameraView onToggleFull={() => setCamFull(true)} />
-                  : <><Gauge thr={tel.thr} mode={tel.mode} /><RoverTopView thr={tel.thr} str={tel.str} /></>}
-              </div>
-              <div className="hud-line">
-                <span className="hud-kv">Steer <b>{tel.str > 0 ? 'R' : tel.str < 0 ? 'L' : ''}{Math.abs(Math.round(tel.str))}</b></span>
-                <span className="hud-kv">Trim <b>{s.trim > 0 ? '+' : ''}{s.trim}</b></span>
-                <span className="hud-kv hide-sm">Runtime <b>{tel.estMin != null ? `~${tel.estMin < 10 ? tel.estMin.toFixed(1) : Math.round(tel.estMin)} min` : '—'}</b></span>
-                {s.steerSource === 'tilt' && <span className="hud-kv"><b>Tilt</b></span>}
-              </div>
-            </div>
-          )}
-          <NovaStrip />
-          <div className="console">
-            <ModePicker value={tel.mode} onChange={(m) => control.mode(m)} />
-            <Ignition armed={tel.armed} disabled={!live} onArm={() => control.arm()} onDisarm={() => control.disarm()} />
-          </div>
-        </div>
+      {zone('left', left)}
+      {zone('right', right)}
 
-        <div className="zone zone-right lg-tile">
-          <EStop disabled={!live} onStop={() => { stopMission('emergency stop', true); control.estop(); haptic('heavy'); }} />
-          <PowerRail />
-          <TripPanel />
-          {steer}
+      <div className="ck-side is-left"><SpeedHold /></div>
+      <div className="ck-side is-right"><EStop disabled={!live} onStop={estop} /></div>
+
+      <div className="ck-console">
+        <SpeedCluster />
+        <div className="ck-modes"><ModePicker value={mode} onChange={(m) => control.mode(m)} /></div>
+        <div className="ck-ign-row">
+          <Ignition armed={armed} disabled={!live} onArm={() => control.arm()} onDisarm={() => control.disarm()} />
+          <MicButton />
         </div>
       </div>
 
-      {r.status === 'lost' && <div className="lost-veil"><span className="spinner" />Reconnecting to rover…</div>}
+      {status === 'lost' && <div className="lost-veil"><span className="spinner" />Reconnecting to rover…</div>}
       <MissionPicker open={picker} onClose={() => setPicker(false)} />
     </section>
   );

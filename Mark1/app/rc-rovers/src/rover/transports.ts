@@ -129,12 +129,12 @@ export function openDemo(hooks: TransportHooks): Transport {
   let tgtThr = 0, tgtStr = 0, outThr = 0, outStr = 0;
   let lastDrive = performance.now();
   let failsafe = false;
-  /* Battery model: state of charge drains with load. Tuned so a full demo pack gives
-     about 5 minutes of real driving (≈20 %/min at half load), a little longer when
-     gentle, a little shorter flat-out. Voltage follows the Li-ion curve and sags under load. */
+  /* Battery model: state of charge drains with load. Tuned like a real 2S/3S crawler pack:
+     about 25 minutes of driving at half load (≈4 %/min), ~40 min gentle, ~17 min flat-out,
+     and almost nothing while parked. Voltage follows the Li-ion curve and sags under load. */
   let soc = 1;                   // 0…1
   let rssi = -46;
-  let rateEma = 0.2;             // fraction per minute, smoothed
+  let rateEma = 0.04;            // fraction per minute, smoothed
   let lowWarned = false;
   let cutoff = false;
   const t0 = performance.now();
@@ -164,7 +164,7 @@ export function openDemo(hooks: TransportHooks): Transport {
 
     // battery
     const load = Math.abs(outThr) / 100;
-    const rate = armed ? 0.02 + load * 0.36 : 0.002;          // fraction per minute
+    const rate = armed ? 0.012 + load * 0.055 : 0.0005;      // fraction per minute
     soc = Math.max(0, soc - (rate * dt) / 60000);
     rateEma += (rate - rateEma) * Math.min(1, dt / 4000);
     const vRest = cellV(soc * 100) * CELLS;
@@ -181,7 +181,7 @@ export function openDemo(hooks: TransportHooks): Transport {
         t: 'tel', armed, mode, thr: Math.round(outThr), str: Math.round(outStr),
         vbat: Math.round(vbat * 100) / 100, pct, rssi: Math.round(rssi),
         up: Math.round((now - t0) / 1000),
-        estMin: Math.round((soc / Math.max(armed ? rateEma : 0.2, 0.02)) * 10) / 10,
+        estMin: Math.round((soc / Math.max(armed ? rateEma : 0.04, 0.012)) * 10) / 10,
         warn,
       });
     }

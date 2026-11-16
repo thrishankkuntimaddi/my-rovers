@@ -11,6 +11,8 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(UpdaterPlugin.class);
+        registerPlugin(VoicePlugin.class);
+        registerPlugin(MediaPlugin.class);
         super.onCreate(savedInstanceState);
         goImmersive();
     }

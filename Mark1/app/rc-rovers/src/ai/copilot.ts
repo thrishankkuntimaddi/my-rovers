@@ -9,7 +9,10 @@ import { bus } from '../state/bus';
 import { logEvent } from '../state/logs';
 import { toast } from '../state/ui';
 import { control, rover } from '../rover/controller';
-import { modeSpec, type DriveMode } from '../rover/protocol';
+import { MODES, modeSpec, type DriveMode } from '../rover/protocol';
+import { cruise } from '../rover/controller';
+import { snapshot, startClip, stopClip, capture } from '../lib/capture';
+import type { ViewId } from '../state/settings';
 import { odo, VMAX } from '../state/odometry';
 import { allMissions, findMission, quickMission, runMission, startRecording, stopMission, stopRecording, recorder, sid, type Move, type Step } from '../missions/missions';
 import { input } from '../state/ui';
@@ -52,7 +55,16 @@ type Action =
   | { t: 'steps'; steps: Step[]; label: string }
   | { t: 'mission'; name: string } | { t: 'record' } | { t: 'saveRecord' } | { t: 'replay' }
   | { t: 'set'; patch: Partial<Settings>; say: string } | { t: 'theme'; v: 'light' | 'dark' | 'system' }
-  | { t: 'nav'; to: NavTarget } | { t: 'reply'; text: string };
+  | { t: 'nav'; to: NavTarget } | { t: 'reply'; text: string }
+  | { t: 'hold'; on: boolean } | { t: 'shift'; dir: 1 | -1 } | { t: 'photo' } | { t: 'video'; on: boolean };
+
+const VIEW_WORDS: [RegExp, ViewId, string][] = [
+  [/\b(rear|back|reverse|reversing|backup)( camera| cam| view)\b|\brear ?view\b/, 'rear', 'Rear camera.'],
+  [/\b(chase|third person|behind( the car)?)( camera| cam| view)?\b/, 'chase', 'Chase camera.'],
+  [/\b(driver|cockpit|steering|inside|dash(board)?)( camera| cam| view)\b/, 'driver', 'Driver view.'],
+  [/\b(top|bird|birds eye|overhead|top down|aerial)( camera| cam| view)\b/, 'top', 'Top-down view.'],
+  [/\b(front|fpv|bumper|nose)( camera| cam| view)\b|\bfront ?cam\b/, 'front', 'Front camera.'],
+];
 
 function speedOf(c: string): number | null {
   const pct = c.match(/(\d+(?:\.\d+)?)\s*(?:%|percent|per cent)/); if (pct) return Math.min(100, +pct[1]);
@@ -97,7 +109,7 @@ function motionOf(c: string): Step | null {
 }
 
 const MODE_WORDS: [RegExp, DriveMode][] = [
-  [/\b(crawl|eco|economy|slowest)( mode)?\b/, 'crawl'], [/\b(cruise|normal|default)( mode)\b|\bcruise\b/, 'cruise'],
+  [/\b(crawl|eco|economy|slowest)( mode)?\b/, 'crawl'], [/\b(cruise|normal|default|trail)( mode)\b|\bnormal\b|\bcruise\b/, 'cruise'],
   [/\b(sport|sporty|fast mode)\b/, 'sport'], [/\b(full|turbo|ludicrous|max)( mode| power)\b|\bturbo\b|\bfull power\b/, 'full'],
 ];
 
@@ -116,9 +128,20 @@ function parse(text: string): Action[] {
     if (has(c, /\b(start|turn on|fire up|ignite|arm|power up|wake up)( the)? ?(engine|ignition|motors?|car|rover)?\b/) && !has(c, /\b(record|mission|recording)\b/) && (has(c, /\b(engine|ignition|motors?|arm)\b/) || /^(start|arm)$/.test(c))) { flush(); out.push({ t: 'arm' }); continue; }
     if (has(c, /\b(disarm|park|shut ?down|turn off|kill)( the)? ?(engine|ignition|motors?)?\b/) && !has(c, /\b(sound|haptic|voice|tilt|tips)\b/)) { flush(); out.push({ t: 'disarm' }); continue; }
     if (has(c, /^(stop|halt|brake|freeze)\b/) && !has(c, /record/)) { flush(); out.push({ t: 'stop' }); continue; }
+    // speed hold (cruise control) — not the Normal drive mode
+    if (has(c, /\b(cruise control|speed hold|hold (the |this |my )?speed|keep (this |the )?speed|lock (the )?(speed|throttle))\b/)) {
+      flush(); out.push({ t: 'hold', on: !has(c, /\b(off|cancel|stop|release|disable|end)\b/) }); continue;
+    }
+    // camera
+    if (has(c, /\b(take|snap|grab|capture)( a| the)? (photo|picture|pic|snapshot|screenshot)\b|^(photo|snapshot|screenshot|say cheese)$/)) { flush(); out.push({ t: 'photo' }); continue; }
+    if (has(c, /\b(stop|end|finish|save) (the )?(video|clip|filming)\b/)) { flush(); out.push({ t: 'video', on: false }); continue; }
+    if (has(c, /\b(record|start|take|film)( a| the)? (video|clip)\b|\bstart filming\b/)) { flush(); out.push({ t: 'video', on: true }); continue; }
+    // gear up / down
+    if (has(c, /^(go |drive |a bit |little )?(faster|more power|speed up|gear up|shift up)( please)?$/)) { flush(); out.push({ t: 'shift', dir: 1 }); continue; }
+    if (has(c, /^(go |drive |a bit |little )?(slower|less power|slow down|gear down|shift down|calm down)( please)?$/)) { flush(); out.push({ t: 'shift', dir: -1 }); continue; }
     // recording
     if (has(c, /\b(stop|end|finish|save) (the )?record(ing)?\b/)) { flush(); out.push({ t: 'saveRecord' }); continue; }
-    if (has(c, /\b(start )?record(ing)?( (a|my|this) drive)?\b/) && !has(c, /\b(replay|play)\b/)) { flush(); out.push({ t: 'record' }); continue; }
+    if (has(c, /\b(start )?record(ing)?( (a|my|this) (drive|route))?\b/) && !has(c, /\b(replay|play|video|clip)\b/)) { flush(); out.push({ t: 'record' }); continue; }
     if (has(c, /\b(replay|play back|playback)\b/)) { flush(); out.push({ t: 'replay' }); continue; }
     // missions by name
     const shape = c.match(/\b(square|circle|figure8|zigzag|patrol|dance|threepointturn|uturn|crawl test|turn around)\b/);
@@ -153,9 +176,11 @@ function parse(text: string): Action[] {
       const patch = (tog[1] === 'steerSource' ? { steerSource: on ? 'tilt' : 'touch' } : { [tog[1]]: on }) as Partial<Settings>;
       flush(); out.push({ t: 'set', patch, say: `${tog[2]} ${on ? 'on' : 'off'}.` }); continue;
     }
-    if (has(c, /\b(map|trail|radar)\b/) && has(c, /\b(show|open|switch|view)\b/)) { flush(); out.push({ t: 'set', patch: { hudView: 'map' }, say: 'Showing the trail map.' }); continue; }
-    if (has(c, /\b(camera|fpv|video)\b/) && has(c, /\b(show|open|switch|view)\b/)) { flush(); out.push({ t: 'set', patch: { hudView: 'camera' }, say: 'Camera view on.' }); continue; }
-    if (has(c, /\b(gauge|speedometer)\b/)) { flush(); out.push({ t: 'set', patch: { hudView: 'gauge' }, say: 'Showing the speed gauge.' }); continue; }
+    const vw = VIEW_WORDS.find(([re]) => re.test(c));
+    if (vw) { flush(); out.push({ t: 'set', patch: { view: vw[1] }, say: vw[2] }); continue; }
+    if (has(c, /\b(map|trail|radar)\b/) && has(c, /\b(show|open|switch|view)\b/)) { flush(); out.push({ t: 'set', patch: { view: 'map' }, say: 'Showing the trail map.' }); continue; }
+    if (has(c, /\b(camera|fpv)\b/) && has(c, /\b(show|open|switch|view)\b/)) { flush(); out.push({ t: 'set', patch: { view: 'front' }, say: 'Front camera.' }); continue; }
+    if (has(c, /\b(gauge|gauges|speedometer|dials?)\b/)) { flush(); out.push({ t: 'set', patch: { view: 'gauge' }, say: 'Showing the gauges.' }); continue; }
     // navigation
     const nav = c.match(/\b(?:open|show|go to|take me to|switch to)(?: the)? (garage|home|cockpit|drive|missions?|logs?|academy|school|achievements|settings|nova|chat)\b/);
     if (nav) {
@@ -199,7 +224,7 @@ function answer(key: string): string {
       if (!live) return off;
       return `All systems ${tel.warn.length ? 'nominal, with warnings: ' + tel.warn.join(', ') : 'nominal'}. Ignition ${tel.armed ? 'on' : 'off'}, ${modeSpec(tel.mode).label} mode, battery ${tel.pct ?? '—'}%, link ${r.kind === 'demo' ? 'demo' : r.kind === 'http' ? 'basic' : 'full'}.`;
     case 'missions': return `You have ${allMissions().length} missions: ${allMissions().slice(0, 8).map((m) => m.name).join(', ')}${allMissions().length > 8 ? '…' : ''}. Say “run” and a name.`;
-    case 'help': return 'Try: “start engine” · “forward slowly for 2 seconds then turn right” · “reverse 1 meter” · “sport mode” · “run the figure 8” · “record a drive” / “stop recording” · “battery?” · “status report” · “trim left 3” · “dark mode” · “stop”.';
+    case 'help': return 'Try: “forward slowly for 2 seconds then turn right” · “reverse 1 meter” · “faster” / “slower” · “sport mode” · “hold speed” · “run the figure 8” · “chase view” / “rear camera” · “take a photo” · “record video” · “battery?” · “status report” · “trim left 3” · “stop”.';
     case 'hello': return `Hello! ${rover.get().status === 'connected' ? `MARK 1 is ${rover.get().tel.armed ? 'armed and ready' : 'online — say “start engine” when ready'}.` : 'Connect to MARK 1 or try the demo and we can roll.'}`;
     case 'thanks': return 'Any time. Drive safe!';
   }
@@ -231,6 +256,13 @@ export function ask(text: string, source: 'typed' | 'voice' = 'typed'): string {
   const live = r.status === 'connected';
   let armedNow = r.tel.armed;
   let tone: ChatMsg['tone'] = 'neutral';
+  /** Driving requests switch the ignition on themselves — asking Nova to drive is consent. */
+  const ensureArmed = () => {
+    if (armedNow) return true;
+    if (!live) return false;
+    control.arm(); armedNow = true; replies.push('Ignition on.');
+    return true;
+  };
 
   for (const a of actions) {
     switch (a.t) {
@@ -241,8 +273,8 @@ export function ask(text: string, source: 'typed' | 'voice' = 'typed'): string {
       case 'disarm': stopMission('ignition off', true); control.disarm(); armedNow = false; replies.push('Ignition off.'); break;
       case 'mode': control.mode(a.m); replies.push(`${modeSpec(a.m).label} mode — power cap ${modeSpec(a.m).cap}%.`); break;
       case 'steps': {
-        if (!live) { replies.push("I'd drive, but no rover is connected."); break; }
-        if (!armedNow) { replies.push('The ignition is off — say “start engine” first, then tell me where to go.'); tone = 'warn'; break; }
+        if (!live) { replies.push("I'd drive, but no rover is connected. Tap Connect or Try demo in the Garage."); tone = 'warn'; break; }
+        ensureArmed();
         const m = quickMission(describeSteps(a.steps), a.steps);
         const go = () => { const res = runMission(m); if (!res.ok) say(res.reason!, 'warn'); };
         if (armedNow && !r.tel.armed) setTimeout(go, 350); else go();
@@ -252,7 +284,7 @@ export function ask(text: string, source: 'typed' | 'voice' = 'typed'): string {
         const m = findMission(a.name);
         if (!m) { replies.push(`I can't find a mission called “${a.name}”.`); break; }
         if (!live) { replies.push(`“${m.name}” needs a connected rover.`); break; }
-        if (!armedNow) { replies.push(`Start the engine first, then I'll run “${m.name}”.`); tone = 'warn'; break; }
+        ensureArmed();
         const go = () => { const res = runMission(m); if (!res.ok) say(res.reason!, 'warn'); };
         if (!r.tel.armed) setTimeout(go, 350); else go();
         replies.push(`Running “${m.name}” — ${m.desc.toLowerCase()}. Touch any control to take over.`); tone = 'good'; break;
@@ -262,10 +294,29 @@ export function ask(text: string, source: 'typed' | 'voice' = 'typed'): string {
       case 'replay': {
         const m = allMissions().find((x) => x.recorded);
         if (!m) { replies.push('No recorded drives yet — say “record a drive” first.'); break; }
-        if (!live || !armedNow) { replies.push('Connect and start the engine first, then I can replay it.'); break; }
-        const res = runMission(m); replies.push(res.ok ? `Replaying “${m.name}”.` : res.reason!); break;
+        if (!live) { replies.push('Connect to the rover first, then I can replay it.'); break; }
+        const wasArmed = r.tel.armed; ensureArmed();
+        const res = wasArmed ? runMission(m) : (setTimeout(() => { const x = runMission(m); if (!x.ok) say(x.reason!, 'warn'); }, 350), { ok: true }); replies.push(res.ok ? `Replaying “${m.name}”.` : res.reason!); break;
       }
       case 'set': settings.set(a.patch); replies.push(a.say); break;
+      case 'hold': {
+        if (!a.on) { control.cruiseOff('Nova'); replies.push('Speed hold off.'); break; }
+        if (cruise.get().on) { replies.push(`Already holding ${Math.abs(cruise.get().thr)}%.`); break; }
+        control.cruise();
+        replies.push(cruise.get().on ? `Holding ${Math.abs(cruise.get().thr)}% — steer freely, touch the throttle to take back control.` : 'Drive at the speed you want first, then ask me to hold it.');
+        break;
+      }
+      case 'shift': {
+        const i = MODES.findIndex((x) => x.id === rover.get().tel.mode);
+        const n = MODES[Math.max(0, Math.min(MODES.length - 1, i + a.dir))];
+        if (n.id === rover.get().tel.mode) { replies.push(a.dir > 0 ? `Already in ${n.label}, the top mode.` : `Already in ${n.label}, the gentlest mode.`); break; }
+        control.mode(n.id); replies.push(`${n.label} mode — power cap ${n.cap}%.`); break;
+      }
+      case 'photo': settings.set({ view: ['map', 'gauge'].includes(settings.get().view) ? 'front' : settings.get().view }); setTimeout(snapshot, 250); replies.push('Snapshot!'); break;
+      case 'video':
+        if (a.on) { if (capture.get().clip) replies.push('Already filming.'); else { if (['map', 'gauge'].includes(settings.get().view)) settings.set({ view: 'front' }); setTimeout(startClip, 250); replies.push('Filming. Say “stop video” to save it to the Gallery.'); } }
+        else { if (capture.get().clip) { stopClip(); replies.push('Saving the clip to the Gallery.'); } else replies.push('Not filming right now.'); }
+        break;
       case 'theme': LiquidGlass.theme.set(a.v); window.dispatchEvent(new CustomEvent('rcr-theme')); replies.push(`${a.v === 'dark' ? 'Dark' : 'Light'} theme on.`); break;
       case 'nav': nova.set({ navRequest: a.to }); replies.push(`Opening ${a.to === 'nova' ? 'chat' : a.to}.`); break;
       case 'reply': replies.push(a.text.startsWith('§') ? answer(a.text.slice(1)) : a.text); if (a.text.startsWith('§unknown')) tone = 'warn'; break;
