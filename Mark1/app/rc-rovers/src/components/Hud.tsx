@@ -19,7 +19,7 @@ export function Gauge({ thr, mode }: { thr: number; mode: DriveMode }) {
   const a = Math.min(100, Math.abs(thr));
   const dir = thr > 1 ? 'FWD' : thr < -1 ? 'REV' : 'N';
   const cap = modeSpec(mode).cap;
-  const cfg = { deadzone: st.deadzone, expo: st.expo, invertThr: st.invertThr, invertStr: st.invertStr, maxPct: st.maxPower };
+  const cfg = { deadzone: st.deadzone, expo: st.expo, invertThr: st.invertThr, invertStr: st.invertStr, maxPct: st.maxPower, stallA: st.stallA };
   const c = Math.min(100, Math.abs(shape(cmd.thr, cfg, false) * cap / 100)) / 100;
   const [gx, gy] = pt(c, 78);
   const [n1x, n1y] = pt(cap / 100, 96), [n2x, n2y] = pt(cap / 100, 103);

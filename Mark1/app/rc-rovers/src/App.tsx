@@ -8,6 +8,7 @@ import { Missions } from './screens/Missions';
 import { Nova } from './screens/Nova';
 import { Logs } from './screens/Logs';
 import { Academy } from './screens/Academy';
+import { Build } from './screens/Build';
 import { ConnectSheet } from './screens/ConnectSheet';
 import { TelemetrySheet } from './screens/TelemetrySheet';
 import { SettingsSheet } from './screens/SettingsSheet';
@@ -69,7 +70,8 @@ export default function App() {
         <NavCtx.Provider value={{ tab, go: setTab, drive, live, settings: () => setSheet('settings') }}>
           <div className="tab-host" hidden={driving}>
             {visited.has('garage') && <Activity mode={shown('garage')}><div className="tab-pane"><Garage active={!driving && tab === 'garage'} onConnect={() => start(false)} onDemo={() => start(true)} onResume={() => setDriving(true)}
-              onSettings={() => setSheet('settings')} onTheme={cycleTheme} themeIcon={themeIcon} /></div></Activity>}
+              onSettings={() => setSheet('settings')} onTheme={cycleTheme} themeIcon={themeIcon} onBuild={() => setTab('build')} /></div></Activity>}
+            {visited.has('build') && <Activity mode={shown('build')}><div className="tab-pane"><Build /></div></Activity>}
             {visited.has('missions') && <Activity mode={shown('missions')}><div className="tab-pane"><Missions onDrive={() => setDriving(true)} /></div></Activity>}
             {visited.has('nova') && <Activity mode={shown('nova')}><div className="tab-pane"><Nova /></div></Activity>}
             {visited.has('logs') && <Activity mode={shown('logs')}><div className="tab-pane"><Logs /></div></Activity>}

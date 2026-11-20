@@ -19,7 +19,7 @@ import { input } from '../state/ui';
 import { LiquidGlass } from '../lib/liquid-glass';
 import { haptic } from '../lib/native';
 
-export type NavTarget = 'garage' | 'drive' | 'missions' | 'nova' | 'logs' | 'academy' | 'settings';
+export type NavTarget = 'garage' | 'build' | 'drive' | 'missions' | 'nova' | 'logs' | 'academy' | 'settings';
 
 export interface ChatMsg { id: number; from: 'you' | 'nova'; text: string; at: number; tone?: 'neutral' | 'good' | 'warn' | 'bad'; source?: 'typed' | 'voice' | 'tip' }
 export const nova = createStore<{ messages: ChatMsg[]; lastReply: string; navRequest: NavTarget | null }>({
@@ -173,10 +173,10 @@ function parse(text: string): Action[] {
     if (has(c, /\b(camera|fpv)\b/) && has(c, /\b(show|open|switch|view)\b/)) { flush(); out.push({ t: 'set', patch: { hudView: 'camera' }, say: 'Camera view.' }); continue; }
     if (has(c, /\b(gauge|gauges|speedometer|dials?)\b/)) { flush(); out.push({ t: 'set', patch: { hudView: 'gauge' }, say: 'Showing the gauges.' }); continue; }
     // navigation
-    const nav = c.match(/\b(?:open|show|go to|take me to|switch to)(?: the)? (garage|home|cockpit|drive|missions?|logs?|academy|school|achievements|settings|nova|chat)\b/);
+    const nav = c.match(/\b(?:open|show|go to|take me to|switch to)(?: the)? (garage|home|build|build guide|wiring|circuit|parts|cockpit|drive|missions?|logs?|academy|school|achievements|settings|nova|chat)\b/);
     if (nav) {
       const k = nav[1];
-      const to: NavTarget = k === 'home' || k === 'garage' ? 'garage' : k.startsWith('mission') ? 'missions' : k.startsWith('log') ? 'logs' : k === 'school' || k === 'achievements' || k === 'academy' ? 'academy' : k === 'cockpit' || k === 'drive' ? 'drive' : k === 'settings' ? 'settings' : 'nova';
+      const to: NavTarget = k === 'home' || k === 'garage' ? 'garage' : k.startsWith('build') || k === 'wiring' || k === 'circuit' || k === 'parts' ? 'build' : k.startsWith('mission') ? 'missions' : k.startsWith('log') ? 'logs' : k === 'school' || k === 'achievements' || k === 'academy' ? 'academy' : k === 'cockpit' || k === 'drive' ? 'drive' : k === 'settings' ? 'settings' : 'nova';
       flush(); out.push({ t: 'nav', to }); continue;
     }
     // chit-chat & help

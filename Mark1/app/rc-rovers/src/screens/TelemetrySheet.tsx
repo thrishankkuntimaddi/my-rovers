@@ -1,7 +1,7 @@
 import { Sheet, Sparkline } from '../components/Common';
 import { useStore } from '../state/store';
 import { rover } from '../rover/controller';
-import { modeSpec } from '../rover/protocol';
+import { modeSpec, PACK_MAH } from '../rover/protocol';
 import { logs } from '../state/logs';
 
 const fmtUp = (s: number) => `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
@@ -34,13 +34,20 @@ export function TelemetrySheet({ open, onClose }: { open: boolean; onClose(): vo
           <div className="kv-list">
             <div><span>Voltage</span><b>{tel.vbat != null ? `${tel.vbat.toFixed(2)} V` : '—'}</b></div>
             <div><span>Per cell</span><b>{tel.vbat != null ? `${(tel.vbat / 3).toFixed(2)} V` : '—'}</b></div>
+            <div><span>Current</span><b>{tel.amps != null ? `${tel.amps.toFixed(2)} A` : '—'}</b></div>
+            <div><span>Power</span><b>{tel.watts != null ? `${tel.watts.toFixed(1)} W` : '—'}</b></div>
+            <div><span>Used</span><b>{tel.mah != null ? `${tel.mah} / ${PACK_MAH} mAh` : '—'}</b></div>
             <div><span>Runtime left</span><b>{tel.estMin != null ? `~${tel.estMin} min` : 'Learning…'}</b></div>
-            <div><span>Status</span><b className={tel.warn.includes('lowbat') ? 't-orange' : ''}>{tel.vbat == null ? 'No sensor yet' : tel.warn.includes('lowbat') ? 'Low' : 'Good'}</b></div>
+            <div><span>Status</span><b className={tel.warn.includes('lowbat') || tel.warn.includes('stall') || (tel.vbat != null && tel.amps == null) ? 't-orange' : ''}>{tel.vbat == null ? 'No sensor yet' : tel.amps == null ? 'Current sensor missing' : tel.warn.includes('stall') ? 'Stall cut-off' : tel.warn.includes('lowbat') ? 'Low' : 'Good'}</b></div>
           </div>
         </div>
         <div className="lg-tile tel-card">
           <div className="tel-head"><span className="lg-label">Battery voltage · 2 min</span><b>{tel.vbat != null ? `${tel.vbat.toFixed(2)} V` : '—'}</b></div>
           <Sparkline data={recent.map((h) => h.v)} min={9} max={12.6} tone="var(--lg-green)" />
+        </div>
+        <div className="lg-tile tel-card">
+          <div className="tel-head"><span className="lg-label">Current · 2 min (INA219)</span><b>{tel.amps != null ? `${tel.amps.toFixed(2)} A` : '—'}</b></div>
+          <Sparkline data={recent.map((h) => h.a)} min={0} max={3.2} tone="var(--lg-orange)" />
         </div>
         <div className="lg-tile tel-card">
           <div className="tel-head"><span className="lg-label">Signal</span><b>{tel.rssi != null ? `${tel.rssi} dBm` : '—'}</b></div>

@@ -34,6 +34,7 @@ export interface Settings {
   cameraUrl: string;    // optional MJPEG/JPEG stream URL (ESP32-CAM etc.)
   hudView: HudView;
   novaTips: boolean;
+  stallA: number;       // 1.0…3.2 A, INA219 stall cut-off
 }
 
 const KEY = 'rcr-settings';
@@ -42,7 +43,7 @@ export const DEFAULT_SETTINGS: Settings = {
   trim: 0, layout: 'dual', controlSize: 'm', swapSides: false, straightAssist: true,
   haptics: true, keepAwake: true, host: DEFAULT_HOST,
   steerSource: 'touch', tiltRange: 28, tiltZero: 0, speakReplies: true, voiceLang: 'en-US',
-  uiSounds: true, motorSound: true, volume: 85, cameraUrl: '', hudView: 'gauge', novaTips: true,
+  uiSounds: true, motorSound: true, volume: 85, cameraUrl: '', hudView: 'gauge', novaTips: true, stallA: 2.5,
 };
 
 function load(): Settings {

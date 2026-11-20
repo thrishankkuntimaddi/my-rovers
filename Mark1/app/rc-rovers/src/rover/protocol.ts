@@ -23,7 +23,10 @@ export interface Telemetry {
   mode: DriveMode;
   thr: number;          // actual output after ramping, −100…100
   str: number;          // actual steering output, −100…100
-  vbat: number | null;  // volts
+  vbat: number | null;  // volts (INA219 bus voltage)
+  amps: number | null;  // whole-rover current from the pack, A (INA219)
+  watts: number | null; // vbat × amps
+  mah: number | null;   // mAh used since the pack was last full (coulomb counting)
   pct: number | null;   // battery %
   rssi: number | null;  // dBm
   up: number;           // seconds
@@ -37,6 +40,7 @@ export interface DriveCfg {
   invertThr: boolean;
   invertStr: boolean;
   maxPct: number;       // %
+  stallA: number;       // stall cut-off current, A (INA219)
 }
 
 /* App → Rover */
@@ -52,7 +56,7 @@ export type AppMsg =
   | { t: 'ping'; ts: number };
 
 /* Rover → App */
-export type RoverEvent = 'failsafe' | 'lowbat' | 'cutoff' | 'estop' | 'armed' | 'disarmed';
+export type RoverEvent = 'failsafe' | 'lowbat' | 'cutoff' | 'estop' | 'armed' | 'disarmed' | 'stall';
 export type RoverMsg =
   | ({ t: 'info' } & RoverInfo)
   | ({ t: 'tel' } & Telemetry)
@@ -60,10 +64,13 @@ export type RoverMsg =
   | { t: 'evt'; e: RoverEvent };
 
 export const DEFAULT_HOST = '192.168.4.1';
-export const APP_VERSION = '2.3.1';
+export const APP_VERSION = '2.4.0';
+
+/** MARK 1 pack: 3 × 18650 in series (3S), 2000 mAh. */
+export const PACK_MAH = 2000;
 
 export const EMPTY_TEL: Telemetry = {
-  armed: false, mode: 'cruise', thr: 0, str: 0, vbat: null, pct: null, rssi: null, up: 0, estMin: null, warn: [],
+  armed: false, mode: 'cruise', thr: 0, str: 0, vbat: null, amps: null, watts: null, mah: null, pct: null, rssi: null, up: 0, estMin: null, warn: [],
 };
 
 /** Li-ion % from per-cell voltage (lookup table from the protocol doc). */

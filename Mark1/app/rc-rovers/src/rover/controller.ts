@@ -13,7 +13,7 @@ export type StepId = 'wifi' | 'reach' | 'handshake';
 export type StepState = 'pending' | 'active' | 'ok' | 'fail';
 
 type Tone = 'neutral' | 'good' | 'warn' | 'bad';
-export interface Sample { t: number; v: number | null; pct: number | null; rssi: number | null; lat: number | null }
+export interface Sample { t: number; v: number | null; a: number | null; pct: number | null; rssi: number | null; lat: number | null }
 
 export interface RoverState {
   status: LinkStatus;
@@ -57,6 +57,7 @@ const EVENT_TEXT: Record<RoverEvent, [string, Tone]> = {
   failsafe: ['Failsafe: rover stopped (no signal)', 'warn'],
   lowbat: ['Battery low', 'warn'],
   cutoff: ['Battery critical: motors cut', 'bad'],
+  stall: ['Motor stall: drive cut. Release the throttle', 'bad'],
 };
 
 const hooks: TransportHooks = {
@@ -79,7 +80,7 @@ const hooks: TransportHooks = {
         if (m.e === 'estop' || m.e === 'cutoff' || m.e === 'failsafe' || m.e === 'disarmed') cruiseOff();
         if (m.e === 'estop') updateTrip((t) => ({ estops: t.estops + 1 }));
         if (m.e === 'estop' || m.e === 'cutoff') haptic('error');
-        else if (m.e === 'failsafe' || m.e === 'lowbat') haptic('warning');
+        else if (m.e === 'failsafe' || m.e === 'lowbat' || m.e === 'stall') haptic('warning');
         return;
       }
     }
@@ -122,7 +123,7 @@ function driveOut(): { thr: number; str: number } {
 
 function pushConfig() {
   const s = settings.get();
-  send({ t: 'cfg', deadzone: s.deadzone, expo: s.expo, invertThr: s.invertThr, invertStr: s.invertStr, maxPct: s.maxPower });
+  send({ t: 'cfg', deadzone: s.deadzone, expo: s.expo, invertThr: s.invertThr, invertStr: s.invertStr, maxPct: s.maxPower, stallA: s.stallA });
   send({ t: 'trim', str: s.trim });
 }
 settings.subscribe(() => { if (rover.get().status === 'connected') pushConfig(); });
@@ -141,8 +142,8 @@ function startLoops() {
   }, 1000);
   sampleTimer = setInterval(() => {
     const { tel, latency } = rover.get();
-    rover.set((s) => ({ history: [...s.history, { t: Date.now(), v: tel.vbat, pct: tel.pct, rssi: tel.rssi, lat: latency }].slice(-600) }));
-    if (++sampleCount % 10 === 0) logEvent('telemetry', `Battery ${tel.pct ?? '—'}% · ${tel.vbat?.toFixed(2) ?? '—'} V · signal ${tel.rssi ?? '—'} dBm · ${latency ?? '—'} ms`, 'neutral', { vbat: tel.vbat, pct: tel.pct, rssi: tel.rssi, latency });
+    rover.set((s) => ({ history: [...s.history, { t: Date.now(), v: tel.vbat, a: tel.amps, pct: tel.pct, rssi: tel.rssi, lat: latency }].slice(-600) }));
+    if (++sampleCount % 10 === 0) logEvent('telemetry', `Battery ${tel.pct ?? '—'}% · ${tel.vbat?.toFixed(2) ?? '—'} V · ${tel.amps?.toFixed(2) ?? '—'} A · signal ${tel.rssi ?? '—'} dBm · ${latency ?? '—'} ms`, 'neutral', { vbat: tel.vbat, amps: tel.amps, mah: tel.mah, pct: tel.pct, rssi: tel.rssi, latency });
     if (tel.armed) updateTrip((t) => ({ seconds: t.seconds + 1, batteryUsed: firstPct != null && tel.pct != null ? Math.max(0, firstPct - tel.pct) : t.batteryUsed }));
     if (firstPct == null && tel.pct != null) firstPct = tel.pct;
   }, 1000);

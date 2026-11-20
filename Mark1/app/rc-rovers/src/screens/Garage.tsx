@@ -26,8 +26,8 @@ function useInRange(enabled: boolean) {
   return state;
 }
 
-export function Garage({ active = true, onConnect, onDemo, onResume, onSettings, onTheme, themeIcon }: {
-  active?: boolean; onConnect(): void; onDemo(): void; onResume(): void; onSettings(): void; onTheme(): void; themeIcon: IconName;
+export function Garage({ active = true, onConnect, onDemo, onResume, onSettings, onTheme, themeIcon, onBuild }: {
+  active?: boolean; onConnect(): void; onDemo(): void; onResume(): void; onSettings(): void; onTheme(): void; themeIcon: IconName; onBuild(): void;
 }) {
   const r = useStore(rover);
   const live = r.status === 'connected' || r.status === 'lost';
@@ -64,7 +64,7 @@ export function Garage({ active = true, onConnect, onDemo, onResume, onSettings,
               <div className="rover-title">
                 <div>
                   <h2>MARK 1</h2>
-                  <p className="lg-text-2">Rock Crawler · 4WD · ESP32</p>
+                  <p className="lg-text-2">Rock Crawler · 4WD · ESP32 · L298N · INA219</p>
                 </div>
                 {chip}
               </div>
@@ -72,7 +72,9 @@ export function Garage({ active = true, onConnect, onDemo, onResume, onSettings,
                 <div><span className="lg-label">Network</span><b>MARK1_ROVER</b></div>
                 <div><span className="lg-label">Address</span><b>{settings.get().host}</b></div>
                 <div><span className="lg-label">Firmware</span><b>{r.info?.fw ?? 'V1'}</b></div>
-                <div><span className="lg-label">Battery</span><b>{r.tel.pct != null && live ? `${r.tel.pct}%` : '—'}</b></div>
+                <div><span className="lg-label">Battery</span><b>{r.tel.pct != null && live ? `${r.tel.pct}%` : '3S 18650'}</b></div>
+                <div><span className="lg-label">Current</span><b>{r.tel.amps != null && live ? `${r.tel.amps.toFixed(2)} A` : 'INA219'}</b></div>
+                <div><span className="lg-label">Motors</span><b>Drive ×2 · Steer</b></div>
               </div>
               <div className="rover-actions">
                 {live ? (
@@ -81,6 +83,7 @@ export function Garage({ active = true, onConnect, onDemo, onResume, onSettings,
                   <>
                     <button className="lg-btn is-primary btn-lg" onClick={onConnect}><Icon name="link" size={19} />Connect</button>
                     <button className="lg-btn btn-lg" onClick={onDemo}><Icon name="play" size={17} />Try demo</button>
+                    <button className="lg-btn btn-lg" onClick={onBuild}><Icon name="wrench" size={18} />Build guide</button>
                   </>
                 )}
               </div>

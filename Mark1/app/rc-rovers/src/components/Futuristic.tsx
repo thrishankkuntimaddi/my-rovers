@@ -12,9 +12,10 @@ import { useBack } from '../lib/back';
 /* ── navigation: glass menu pill (top-left) + Drive button (top-right) ──
    Replaces the bottom dock. The pill shows where you are; tapping it opens a
    floating Liquid Glass menu that grows out of it (like iPadOS 26 menus). */
-export type Tab = 'garage' | 'missions' | 'nova' | 'logs' | 'academy';
+export type Tab = 'garage' | 'build' | 'missions' | 'nova' | 'logs' | 'academy';
 export const TABS: { id: Tab; label: string; icon: IconName; sub: string }[] = [
   { id: 'garage', label: 'Garage', icon: 'rover', sub: 'Your rovers' },
+  { id: 'build', label: 'Build', icon: 'wrench', sub: 'MARK 1 · parts · circuit · guide' },
   { id: 'missions', label: 'Missions', icon: 'route', sub: 'Routes · record & replay' },
   { id: 'nova', label: 'Nova', icon: 'spark', sub: 'AI co-pilot' },
   { id: 'logs', label: 'Logs', icon: 'list', sub: 'Events · trips · stats' },

@@ -2,7 +2,7 @@
    - WsTransport:   real rover, firmware with WebSocket (Phase 3+)
    - HttpTransport: real rover, Firmware V1 (Phase 1) — discrete /api/cmd commands
    - DemoTransport: simulated rover in the app (no hardware)                        */
-import { cellV, modeSpec, shape, EMPTY_TEL, type AppMsg, type DriveCfg, type DriveMode, type RoverMsg, type Telemetry } from './protocol';
+import { cellV, modeSpec, shape, EMPTY_TEL, PACK_MAH, type AppMsg, type DriveCfg, type DriveMode, type RoverMsg, type Telemetry } from './protocol';
 
 export interface Transport {
   send(msg: AppMsg): void;
@@ -124,17 +124,19 @@ export function openDemo(hooks: TransportHooks): Transport {
   const CELLS = 3;
   let armed = false;
   let mode: DriveMode = 'cruise';
-  let cfg: DriveCfg = { deadzone: 5, expo: 30, invertThr: false, invertStr: false, maxPct: 100 };
+  let cfg: DriveCfg = { deadzone: 5, expo: 30, invertThr: false, invertStr: false, maxPct: 100, stallA: 2.5 };
   let trim = 0;
   let tgtThr = 0, tgtStr = 0, outThr = 0, outStr = 0;
   let lastDrive = performance.now();
   let failsafe = false;
-  /* Battery model: state of charge drains with load. Tuned like a real 2S/3S crawler pack:
-     about 25 minutes of driving at half load (≈4 %/min), ~40 min gentle, ~17 min flat-out,
-     and almost nothing while parked. Voltage follows the Li-ion curve and sags under load. */
-  let soc = 1;                   // 0…1
+  /* Battery model, as the INA219 sees it: whole-rover current from the 3S pack (after the
+     bucks step it down), integrated into mAh used. ESP32 + L298N idle ≈ 0.1 A; the two
+     drive motors add up to ~1.6 A at full throttle, steering ~0.3 A. Voltage follows the
+     Li-ion curve and sags with current (pack internal resistance ≈ 0.35 Ω). */
+  let mah = 0;                   // used since full
   let rssi = -46;
-  let rateEma = 0.04;            // fraction per minute, smoothed
+  let ampsAvg = 0.6;             // A, smoothed over ~2 min of driving (runtime estimate)
+  let amps = 0.1;
   let lowWarned = false;
   let cutoff = false;
   const t0 = performance.now();
@@ -162,13 +164,14 @@ export function openDemo(hooks: TransportHooks): Transport {
     outThr += Math.max(-step, Math.min(step, target - outThr));
     outStr += Math.max(-dt * 0.9, Math.min(dt * 0.9, wantStr - outStr));
 
-    // battery
+    // battery (INA219 view)
     const load = Math.abs(outThr) / 100;
-    const rate = armed ? 0.012 + load * 0.055 : 0.0005;      // fraction per minute
-    soc = Math.max(0, soc - (rate * dt) / 60000);
-    rateEma += (rate - rateEma) * Math.min(1, dt / 4000);
-    const vRest = cellV(soc * 100) * CELLS;
-    const vbat = Math.max(9.0, vRest - load * 0.55 - Math.abs(outStr) / 100 * 0.08);
+    const want = 0.1 + (armed ? 0.05 + load * 1.6 + (Math.abs(outStr) / 100) * 0.3 : 0);
+    amps += (want - amps) * Math.min(1, dt / 120);
+    mah = Math.min(PACK_MAH, mah + (amps * 1000 * dt) / 3600000);
+    if (armed) ampsAvg += (amps - ampsAvg) * Math.min(1, dt / 120000);
+    const soc = 1 - mah / PACK_MAH;
+    const vbat = Math.max(9.0, cellV(soc * 100) * CELLS - amps * 0.35);
     const pct = Math.round(soc * 100);
     const warn: string[] = [];
     if (pct <= 15) { warn.push('lowbat'); if (!lowWarned) { lowWarned = true; emit({ t: 'evt', e: 'lowbat' }); } }
@@ -179,15 +182,16 @@ export function openDemo(hooks: TransportHooks): Transport {
     if (++telTick % 5 === 0) {   // 10 Hz telemetry
       emit({
         t: 'tel', armed, mode, thr: Math.round(outThr), str: Math.round(outStr),
-        vbat: Math.round(vbat * 100) / 100, pct, rssi: Math.round(rssi),
+        vbat: Math.round(vbat * 100) / 100, amps: Math.round(amps * 100) / 100,
+        watts: Math.round(vbat * amps * 10) / 10, mah: Math.round(mah), pct, rssi: Math.round(rssi),
         up: Math.round((now - t0) / 1000),
-        estMin: Math.round((soc / Math.max(armed ? rateEma : 0.04, 0.012)) * 10) / 10,
+        estMin: Math.round(((PACK_MAH - mah) / (Math.max(0.15, ampsAvg) * 1000)) * 60),
         warn,
       });
     }
   }, 20);
 
-  setTimeout(() => emit({ t: 'info', name: 'MARK 1', model: 'mark1', fw: '1.0.0-demo', caps: ['drive', 'steer', 'battery'] }), 120);
+  setTimeout(() => emit({ t: 'info', name: 'MARK 1', model: 'mark1', fw: '1.0.0-demo', caps: ['drive', 'steer', 'battery', 'current'] }), 120);
 
   return {
     send(m) {

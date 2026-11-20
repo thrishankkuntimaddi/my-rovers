@@ -13,7 +13,8 @@ Design spec: [`../../docs/app-design.md`](../../docs/app-design.md) · Protocol:
 | **Garage** | Your rovers. MARK 1 card with photo, live "In range" check, Connect / Try demo. MARK 2–5 shown as coming next. |
 | **Connect** | Three live steps: Wi-Fi → reach rover → handshake. Clear help if it fails, plus a one-tap fallback to demo. |
 | **Drive** | Cockpit. Throttle (left thumb) + steering (right thumb), *or* joystick + tap pad. Speed gauge, top-down rover with live steering, drive modes (Crawl / Cruise / Sport / Full), **slide-to-start ignition**, **emergency STOP** (fires on touch-down), live battery / signal / latency / runtime. |
-| **Telemetry** | Battery ring, voltage / signal / latency graphs, session info, event log. |
+| **Build** | The complete MARK 1 build guide: parts (have / to buy, ₹ prices), full circuit diagram with wire-group filter, ESP32 pin map, L298N truth table, every wire as a checklist, and step-by-step guide from laptop setup (Arduino IDE, ESP32 boards, drivers, flashing) to mounting. Ticks are saved on the device. |
+| **Telemetry** | Battery ring, voltage, current (INA219), power, mAh used, voltage / current / signal / latency graphs, session info, event log. |
 | **Missions** | Built-in and custom routes with path previews, step editor, record & replay. |
 | **Nova** | Offline co-pilot chat with voice, suggestions and command history (`/raw {"t":"mode","m":"sport"}` for raw protocol). |
 | **Logs** | Events / Trips / Stats, filters, search, export. |
@@ -43,6 +44,15 @@ Open the link on your Android tablet or phone, install it, and tap **Try demo**.
 **Updating:** never uninstall. Every release is signed with the same key and has a higher version code, so it installs *over* the old app and keeps your missions, XP, logs and settings. From 2.2.0 on, the app checks for new releases itself: when one is out, an **Update** card appears in the Garage (also *Settings → About → Updates*). Tap it, then tap **Update** on Android's screen. The first time, Android asks you to allow *Install unknown apps* for RC-Rovers.
 
 ---
+
+## What's new in 2.4.0
+
+| | |
+|---|---|
+| 🛠️ | **Build** section: parts, circuit diagram, wiring checklist and the step-by-step MARK 1 guide (Garage → *Build guide*, or say “open build”). |
+| ⚡ | **INA219 telemetry**: live amps, watts and mAh used; battery % from mAh counting; runtime from real current draw. |
+| 🛑 | **Stall cut-off**: new `stall` event and a *Stall cut-off* current setting (sent to the rover in `cfg.stallA`). |
+| 🚙 | Garage card shows the new hardware: 3S 18650, INA219, drive ×2 + steering. |
 
 ## What's new in 2.3.1
 
@@ -114,7 +124,8 @@ The signing key is `~/.android/debug.keystore` on the build Mac. **Back it up.**
 src/
 ├── App.tsx                 dock navigation, screens + sheets
 ├── effects.ts              app-wide wiring (chimes, engine sound, gamepad, voice)
-├── screens/                Garage · Drive · Missions · Nova · Logs · Academy · Connect/Telemetry/Settings sheets
+├── guide/                  mark1.ts (parts, pins, wires, steps: single source) · Circuit.tsx (wiring diagram)
+├── screens/                Garage · Build · Drive · Missions · Nova · Logs · Academy · Connect/Telemetry/Settings sheets
 ├── ai/                     copilot.ts (Nova language engine) · voice.ts (speech in/out)
 ├── missions/               missions.ts (built-ins, editor model, autopilot, recorder)
 ├── input/                  sources.ts (tilt, gamepad, keyboard)

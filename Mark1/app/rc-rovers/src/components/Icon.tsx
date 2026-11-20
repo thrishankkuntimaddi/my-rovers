@@ -50,6 +50,7 @@ const PATHS: Record<string, string> = {
   flag: 'M5 21V4 M5 4h11l-2 4 2 4H5',
   cruise: 'M12 20a8 8 0 1 0-8-8 M12 12l4.5-4.5 M4 16h5 M6 19h3',
   expand: 'M14 4h6v6 M20 4l-7 7 M10 20H4v-6 M4 20l7-7',
+  wrench: 'M14.7 6.3a4 4 0 0 0 5 5L21 13l-2 2-1.3-1.3a4 4 0 0 1-5-5L4.5 17a1.8 1.8 0 0 0 2.5 2.5l8.2-8.2',
   shrink: 'M19 11h-6V5 M13 11l7-7 M5 13h6v6 M11 13l-7 7',
 };
 

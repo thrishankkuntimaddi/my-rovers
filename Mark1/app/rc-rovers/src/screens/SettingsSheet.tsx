@@ -53,6 +53,9 @@ export function SettingsSheet({ open, onClose, theme, onTheme }: { open: boolean
               <Slider label="Steering trim" value={s.trim} min={-20} max={20} onChange={(v) => set({ trim: v })} format={(v) => (v > 0 ? `+${v}` : `${v}`)} />
               {s.trim !== 0 && <button className="lg-btn" onClick={() => set({ trim: 0 })}>Centre</button>}
             </Row>
+            <Row title="Stall cut-off" sub="INA219: cut the drive if current stays above this for 1.5 s">
+              <Slider label="Stall cut-off" value={s.stallA} min={1} max={3.2} step={0.1} onChange={(v) => set({ stallA: Math.round(v * 10) / 10 })} format={(v) => `${v.toFixed(1)} A`} />
+            </Row>
             <Row title="Invert throttle"><Switch label="Invert throttle" checked={s.invertThr} onChange={(v) => set({ invertThr: v })} /></Row>
             <Row title="Invert steering"><Switch label="Invert steering" checked={s.invertStr} onChange={(v) => set({ invertStr: v })} /></Row>
             <Row title="Haptics"><Switch label="Haptics" checked={s.haptics} onChange={(v) => set({ haptics: v })} /></Row>
