@@ -124,8 +124,10 @@ Mark1/
 │   ├── app-design.md            ← RC-Rovers app spec (Liquid Glass, landscape)
 │   └── control-protocol.md      ← app ↔ ESP32 messages, failsafe, modes
 ├── firmware/
-│   └── MARK1_Firmware_V1/       ← Arduino sketch (folder name = sketch name)
-│       └── MARK1_Firmware_V1.ino   Phase 1: Wi-Fi AP + web control, no motors
+│   ├── MARK1_Firmware_V1/       ← Arduino sketch (folder name = sketch name)
+│   │   └── MARK1_Firmware_V1.ino   Phase 1: Wi-Fi AP + web control, no motors
+│   └── MARK1_Firmware_V3/
+│       └── MARK1_Firmware_V3.ino   Phases 2–4: motors, WebSocket protocol, INA219, safety
 ├── app/
 │   ├── rc-rovers/               ← the RC-Rovers Android app (React + Capacitor) — see its README
 │   └── design/                  ← Liquid Glass theme: spec, CSS kit, token table
@@ -137,7 +139,7 @@ Mark1/
     └── ui-reference/            ← Liquid Glass UI references (menus, lists, press states)
 ```
 
-Later phases add `firmware/MARK1_Firmware_V2/` (motors), `V3/` (WebSocket + modes) and so on.
+V3 covers the motor bench test (its web page at `192.168.4.1` drives at 35% while a button is held, disarmed only), full app control and the battery/INA219 power system. Libraries: *ESP Async WebServer* + *Async TCP* (ESP32Async), *ArduinoJson* 7, *Adafruit INA219*.
 
 ---
 

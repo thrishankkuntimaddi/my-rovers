@@ -46,7 +46,7 @@ All messages are small JSON objects with a type field `t`.
 | `estop` | — | E-stop button | Brake, then disarm. Needs a fresh `arm` to drive again |
 | `mode` | `m`: `crawl` \| `cruise` \| `sport` \| `full` | mode picker | Changes power cap + ramp rate |
 | `trim` | `str` −20…20 | settings | Steering centre offset |
-| `cfg` | `deadzone`, `invertThr`, `invertStr`, `maxPct` | settings | Saved to ESP32 flash (NVS) |
+| `cfg` | `deadzone`, `expo`, `invertThr`, `invertStr`, `maxPct`, `stallA` | settings | Saved to ESP32 flash (NVS) |
 | `ping` | `ts` | every 1 s | Rover echoes it back (`pong`). The app measures latency. |
 
 Example:
@@ -61,7 +61,9 @@ Example:
 | `info` | `name` "MARK 1", `model` "mark1", `fw` "1.x.y", `caps` (e.g. `["drive","steer","battery"]`) | once, after `hello` |
 | `tel` | `armed`, `mode`, `thr`, `str` (actual output, after ramping), `vbat` (V), `amps` (A), `watts` (W), `mah` (mAh used since full), `pct` (%), `rssi` (dBm), `up` (s), `estMin` (estimated runtime minutes), `warn` (array) | **5 Hz** |
 | `pong` | `ts` | reply to `ping` |
-| `evt` | `e`: `failsafe` \| `lowbat` \| `cutoff` \| `estop` \| `armed` \| `disarmed` | when it happens |
+| `evt` | `e`: `failsafe` \| `lowbat` \| `cutoff` \| `estop` \| `armed` \| `disarmed` \| `stall` | when it happens |
+
+`warn` may contain `lowbat`, `stall`, `failsafe`, `cutoff`, `nosensor` (INA219 not found).
 
 Example:
 ```json
@@ -93,9 +95,9 @@ Example:
 | **Crawl** | 25% | 600 ms | Rock crawling, indoors, precise |
 | **Cruise** | 50% | 400 ms | Everyday driving (default) |
 | **Sport** | 75% | 250 ms | Quick |
-| **Full** | 100% (of the voltage-safe cap) | 150 ms | Everything it has |
+| **Full** | 100% | 150 ms | Everything it has |
 
-**Max power** is relative to the *voltage-safe cap* (see [hardware doc §4](hardware-and-wiring.md#4-power-system-decisions--battery-safety)), so even *Full* won't over-volt the toy motors.
+The **motor buck** (≈ 8.5 V, see [hardware doc §4](hardware-and-wiring.md#4-power-system-decisions--battery-safety)) fixes the motor voltage, so even *Full* won't over-volt the toy motors. **Max power** (Settings) caps every mode.
 
 **Throttle curve:** the app sends linear −100…100. The firmware applies a **deadzone** (default 5%), a **minimum start PWM** (the motor doesn't move below about 25% duty, so output jumps from 0 to the start value), and an **expo curve** for fine control at low speeds.
 

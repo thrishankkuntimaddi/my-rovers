@@ -50,13 +50,13 @@ Sketch: [`firmware/MARK1_Firmware_V1/MARK1_Firmware_V1.ino`](../firmware/MARK1_F
 
 **Goal:** the ESP32 spins one motor forward/reverse at different speeds through the L298N.
 Wiring: [hardware doc §3, Phase 2](hardware-and-wiring.md#phase-2-bench-test-one-motor-esp32-still-on-usb).
-Sketch (to be written): `firmware/MARK1_Firmware_V2/`. It adds motor control to V1, with the buttons from the web page driving channel A.
+Sketch: [`firmware/MARK1_Firmware_V3/`](../firmware/MARK1_Firmware_V3/MARK1_Firmware_V3.ino) (no separate V2). Its page at `http://192.168.4.1` is a bench pad: hold a button to run at 35%, release to stop. Works only while the app is not armed.
 
 1. Car on a box, **wheels in the air**.
 2. Unplug the stock board's motor connectors and wire **one drive motor** to OUT1/OUT2.
 3. Remove the ENA jumper. Wire D25→ENA, D26→IN1, D27→IN2, GND↔GND.
 4. Battery + → L298N 12V, battery − → L298N GND. The ESP32 stays on USB.
-5. Test forward / reverse / stop at 30%, 60%, 100% from the web page.
+5. Test forward / reverse / stop from the bench page (short bursts at 35%).
 6. Repeat for the second drive motor and the steering motor (on channel B: D13/D32/D33).
 
 - [ ] Drive motor 1 forward + reverse
@@ -70,7 +70,9 @@ Sketch (to be written): `firmware/MARK1_Firmware_V2/`. It adds motor control to 
 ## Phase 3 — Drive control
 
 **Goal:** full driving with smooth, safe control.
-Sketch: `firmware/MARK1_Firmware_V3/`. It adds the WebSocket (`ws://192.168.4.1/ws`), the protocol in [control-protocol.md](control-protocol.md), arm/disarm, E-stop, the 300 ms failsafe, ramping, drive modes, and a better control page (joystick) served from LittleFS.
+Sketch: [`firmware/MARK1_Firmware_V3/MARK1_Firmware_V3.ino`](../firmware/MARK1_Firmware_V3/MARK1_Firmware_V3.ino). It adds the WebSocket (`ws://192.168.4.1/ws`), the protocol in [control-protocol.md](control-protocol.md), arm/disarm, E-stop, the 300 ms failsafe, ramping, drive modes, INA219 power telemetry and the stall cut-off. Driving is done from RC-Rovers; the rover's own page at `192.168.4.1` is a bench-test pad (35%, disarmed only).
+
+Libraries (Arduino IDE → Manage Libraries): **ESP Async WebServer** + **Async TCP** (by ESP32Async), **ArduinoJson** (v7), **Adafruit INA219**.
 
 - [ ] Both drive motors on channel A push the car the same way
 - [ ] Steering on channel B, centre returns

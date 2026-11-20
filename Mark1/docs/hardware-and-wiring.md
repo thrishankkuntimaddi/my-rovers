@@ -179,7 +179,7 @@ Nothing else is connected.
 ### Li-ion safety checklist
 * Inspect each cell's wrap. If it's torn or dented, don't use it.
 * Charge on a non-flammable surface, never unattended, never overnight.
-* Never discharge below **3.0 V per cell** (9.0 V for 3S). The firmware disarms at **3.3 V/cell** (9.9 V) and warns at **3.5 V/cell**.
+* Never discharge below **3.0 V per cell** (9.0 V for 3S). The firmware warns at **3.5 V/cell** (10.5 V), drops to Crawl below **3.3 V/cell** (9.9 V) and cuts off below **3.2 V/cell** (9.6 V).
 * Use a fuse close to the pack (+). It turns a short circuit into a blown fuse instead of a fire.
 * Insulate every exposed joint with heat-shrink or electrical tape.
 
