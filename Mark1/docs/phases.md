@@ -85,16 +85,19 @@ Sketch: `firmware/MARK1_Firmware_V3/`. It adds the WebSocket (`ws://192.168.4.1/
 
 ## Phase 4 — Power system (untethered)
 
-**Goal:** the rover runs on its own battery, with voltage sensing.
+**Goal:** the rover runs on its own battery, with current + voltage sensing (INA219).
 Wiring: [hardware doc §3 Phase 4 + §4](hardware-and-wiring.md#phase-4-on-battery-untethered).
 
 1. Decide on the pack (3S recommended) and charging (BMS + charger, or TP4056 one cell at a time).
-2. Set the buck converter to **5.0 V** with the multimeter, **before** connecting the ESP32.
-3. Wire pack → fuse → switch → L298N + buck → ESP32 VIN. All grounds common.
-4. Add the 100 kΩ / 22 kΩ divider to D34. Calibrate against the multimeter.
-5. Low-voltage warning, power cap and cutoff active.
+2. Set the logic buck to **5.0 V** and the motor buck to **≈ 8.5 V** with the multimeter, **before** connecting anything to them.
+3. Wire pack → fuse → switch → INA219 (VIN+ → VIN−) → motor buck → L298N, and → logic buck → ESP32 VIN. All grounds common.
+4. Connect the INA219: VCC → 3V3, GND → GND, SDA → D21, SCL → D22. Run an I²C scan: it must show **0x40**.
+5. Optional: add the 100 kΩ / 22 kΩ backup divider to D34.
+6. Low-voltage warning, cutoff and stall protection active.
 
-- [ ] Buck output measured at 5.0 V
+- [ ] Logic buck measured at 5.0 V, motor buck at ≈ 8.5 V
+- [ ] INA219 found at 0x40; current reads positive while driving
+- [ ] INA219 current within 10% of the multimeter (in series, on the 10 A range)
 - [ ] ESP32 boots from battery (USB unplugged)
 - [ ] Driving doesn't reset the ESP32 (no brownout)
 - [ ] Battery voltage reading within 0.1 V of the multimeter
@@ -118,7 +121,8 @@ Wiring: [hardware doc §3 Phase 4 + §4](hardware-and-wiring.md#phase-4-on-batte
 
 ## Phase 6 — Telemetry & polish
 
-- [ ] Battery % + runtime estimate shown live
+- [ ] Battery % (mAh counting) + runtime estimate shown live
+- [ ] Live amps / watts in the app; stall cut-off tested (hold the wheels briefly, low mode)
 - [ ] RSSI + latency shown
 - [ ] Telemetry screen with graphs + event log
 - [ ] Settings saved on the ESP32 (NVS): trim, caps, deadzone, Wi-Fi password

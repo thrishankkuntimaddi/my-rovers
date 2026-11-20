@@ -44,7 +44,7 @@ Detailed documents:
 | **Drive modes (presets)** | **Crawl** (25%), **Cruise** (50%), **Sport** (75%), **Full** (100%). These are max-power caps with different ramp speeds. |
 | **Emergency stop** | One big tap stops everything immediately. |
 | **Failsafe** | If the tablet goes silent for 300 ms (Wi-Fi drop, app closed), the rover stops by itself. |
-| **Live status** | Connection state, signal strength (RSSI), battery voltage and %, estimated runtime remaining, armed state, current mode, uptime. |
+| **Live status** | Connection state, signal strength (RSSI), battery voltage and %, live current (A) and power (W), mAh used, estimated runtime remaining, armed state, current mode, uptime. |
 | **Settings** | Steering trim, max speed, deadzone, invert controls, light/dark theme, saved on the rover. |
 
 ---
@@ -59,11 +59,12 @@ Detailed documents:
 │                          │ ◄────────────────────────────────── │   ├─ PWM + direction ─► L298N      │
 │  Liquid Glass UI         │   telemetry @ 5 Hz                  │   │                     ├─► drive  │
 │  joystick / throttle     │                                     │   │                     └─► steer  │
-│  modes · E-stop · HUD    │                                     │   └─ ADC ◄─ battery voltage divider│
+│  modes · E-stop · HUD    │                                     │   └─ I²C ◄─ INA219 (amps + volts)  │
 └──────────────────────────┘                                     │                                    │
                                                                  │  18650 pack ─► fuse ─► switch      │
-                                                                 │     ├─► L298N motor supply         │
-                                                                 │     └─► buck converter 5 V ─► ESP32│
+                                                                 │     ─► INA219 current sensor       │
+                                                                 │     ├─► motor buck 8.5 V ─► L298N  │
+                                                                 │     └─► logic buck 5 V ─► ESP32    │
                                                                  └────────────────────────────────────┘
 ```
 
@@ -79,7 +80,7 @@ Detailed documents:
 
 | # | Component | Photo | Notes |
 |---|---|---|---|
-| 1 | 4WD rock crawler (blue "ROCK CRAWLER", ~1:18) | [side](media/hardware/01-rock-crawler-side.jpeg) · [body off](media/hardware/02-rock-crawler-body-off.jpeg) | Expected 3 motors: front drive, rear drive, steering. Verify in Phase 2. |
+| 1 | 4WD rock crawler (blue "ROCK CRAWLER", ~1:18) | [side](media/hardware/01-rock-crawler-side.jpeg) · [body off](media/hardware/02-rock-crawler-body-off.jpeg) | **3 motors (confirmed):** front drive + rear drive (wired in parallel on L298N channel A) and steering (channel B). No handheld controller needed; the tablet is the controller. |
 | 2 | ESP32 DevKit V1, 30-pin (ESP-WROOM-32, micro-USB) | [photo](media/hardware/03-esp32-devkit.jpeg) | Wi-Fi + Bluetooth microcontroller. |
 | 3 | L298N dual H-bridge motor driver | [photo](media/hardware/04-l298n-motor-driver.jpeg) | 2 channels, ~2 V voltage drop, gets warm. Fine for Mark 1. |
 | 4 | 3 × 18650 Li-ion cells (3.7 V, 2000 mAh) + 3-cell holder | [photo](media/hardware/05-18650-cells-holder.jpeg) | Check whether the holder wires the cells in **series** (11.1 V) with a multimeter. |
@@ -89,7 +90,7 @@ Detailed documents:
 | 8 | Micro-USB cable | | Must be a **data** cable, not charge-only. |
 | 9 | Xiaomi Pad 5 (Android, 11", 2560×1600, 120 Hz) | | Runs RC-Rovers. |
 
-**Still needed:** multimeter (essential), buck converter (MP1584 or LM2596), rocker switch, inline fuse, resistors (100 kΩ + 22 kΩ), and a proper pack charger / BMS. See the [shopping list](docs/hardware-and-wiring.md#shopping-list).
+**Still needed:** multimeter (essential), 5 V logic buck converter (MP1584 or LM2596), motor buck converter (XL4015 5 A, ≈ 8.5 V for the motors), rocker switch, inline fuse, **INA219 current sensor (required)**, and a proper pack charger / BMS. Resistors (100 kΩ + 22 kΩ) only for the optional backup voltage sense. See the [shopping list](docs/hardware-and-wiring.md#shopping-list).
 
 ---
 

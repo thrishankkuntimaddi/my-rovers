@@ -59,7 +59,7 @@ Example:
 | `t` | Fields | Rate |
 |---|---|---|
 | `info` | `name` "MARK 1", `model` "mark1", `fw` "1.x.y", `caps` (e.g. `["drive","steer","battery"]`) | once, after `hello` |
-| `tel` | `armed`, `mode`, `thr`, `str` (actual output, after ramping), `vbat` (V), `pct` (%), `rssi` (dBm), `up` (s), `estMin` (estimated runtime minutes), `warn` (array) | **5 Hz** |
+| `tel` | `armed`, `mode`, `thr`, `str` (actual output, after ramping), `vbat` (V), `amps` (A), `watts` (W), `mah` (mAh used since full), `pct` (%), `rssi` (dBm), `up` (s), `estMin` (estimated runtime minutes), `warn` (array) | **5 Hz** |
 | `pong` | `ts` | reply to `ping` |
 | `evt` | `e`: `failsafe` \| `lowbat` \| `cutoff` \| `estop` \| `armed` \| `disarmed` | when it happens |
 
@@ -105,12 +105,15 @@ Example:
 
 ## 6. Battery % and runtime estimate
 
-* `vbat` is sampled at 50 Hz on GPIO34 and averaged over 1 s. It's calibrated against a multimeter once (stored as a factor in NVS).
-* `pct` comes from a per-cell lookup table, not a linear scale, because Li-ion voltage is flat in the middle:
+* Source: the **INA219** on I²C (D21/D22), read at 50 Hz and averaged over 1 s. It gives `vbat` (pack voltage) and `amps`; `watts` = `vbat` × `amps`.
+* `mah` is **coulomb counting**: current is integrated over time. It resets to 0 when the pack is detected as full (≥ 4.15 V/cell at idle, after charging). Pack capacity: 2000 mAh (3S, cells in series, so capacity stays 2000 mAh).
+* Fallback: if the INA219 isn't found on I²C at boot, `vbat` comes from the optional divider on GPIO34, `amps`/`watts`/`mah` are sent as `null`, and the app shows a "current sensor missing" warning.
+* `pct` = 100 × (1 − `mah` / 2000). The voltage table below is used at boot (to estimate the starting charge) and to correct drift while the rover is idle:
 
 | V/cell | 4.20 | 4.05 | 3.90 | 3.80 | 3.70 | 3.60 | 3.50 | 3.30 |
 |---|---|---|---|---|---|---|---|---|
 | % | 100 | 85 | 70 | 55 | 40 | 25 | 10 | 0 |
 
-* Voltage sags under load, so `pct` uses voltage measured while the motors are idle or lightly loaded.
-* `estMin` is the % drop rate over the last few minutes of real driving, extrapolated to 0%. It shows "—" until there's enough data. An INA219 current sensor (optional) makes this accurate.
+* Voltage sags under load, so voltage corrections are only applied while the motors are idle (current < 0.2 A for 3 s).
+* `estMin` = remaining mAh ÷ average current over the last 2 minutes of driving. It shows "—" until there's enough data.
+* **Stall protection:** if `amps` stays above the stall limit (default 2.5 A, set in Settings) for 1.5 s, the firmware cuts the drive output, sends `warn: ["stall"]`, and needs throttle back to 0 before driving again.

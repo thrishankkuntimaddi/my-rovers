@@ -27,12 +27,13 @@ This document explains **every physical part**, **how each one connects**, and *
 * It loses about **2 V** internally and gets warm. That's acceptable for MARK 1. MARK 2 can upgrade to a modern MOSFET driver (TB6612FNG / DRV8871 / BTS7960).
 
 ### The rock crawler: *the body*
-* The 4WD rock crawler most likely has **three motors**:
-  1. front axle drive motor
-  2. rear axle drive motor
-  3. steering motor (front)
+* The 4WD rock crawler has **three motors** (confirmed):
+  1. front axle drive motor ┐ wired **in parallel** → L298N channel A (forward / reverse)
+  2. rear axle drive motor  ┘
+  3. steering motor (front) → L298N channel B (left / right)
+* One L298N is enough for MARK 1. No second driver and no handheld transmitter are needed; the RC-Rovers tablet app is the controller.
 * The stock receiver board and its 2-pin battery plug (white JST, visible in the photos) are removed in Phase 2. **Keep the stock board.** Don't throw it away.
-* **Check the original battery label** (often 4.8 V NiCd or 7.4 V Li-ion). The motors were designed for that voltage, and our firmware caps the power to match it.
+* **Check the original battery label** (often 4.8 V NiCd or 7.4 V Li-ion). The motors were designed for that voltage. A dedicated **motor buck converter** (see §4) steps the 3S pack down to suit them.
 * **Steering type** (check in Phase 2):
   * **2 wires** → a plain DC motor with a return spring. The steering is left / centre / right; the amount of PWM sets how hard it turns.
   * **5 wires** (2 motor + 3 to a potentiometer) → position feedback is possible. Proportional steering becomes possible in a later phase.
@@ -46,6 +47,17 @@ This document explains **every physical part**, **how each one connects**, and *
 * Charges **one** Li-ion cell to 4.2 V at up to 1 A. `B+ / B−` go to the cell, and `OUT+ / OUT−` is the protected output.
 * ⚠️ **It cannot charge 2 or 3 cells in series.** Connecting it to the series pack is dangerous and won't work.
 * Use it to charge **one cell at a time** (take the cell out of the holder) until a proper pack charger + BMS arrives. Red LED = charging, blue/green = full.
+
+### INA219 current/voltage sensor: *the fuel gauge* (required)
+* A small I²C board with a 0.1 Ω shunt resistor. It measures the **whole rover's current** (up to ±3.2 A) and the **pack voltage** (up to 26 V).
+* It sits in the pack's + line, after the switch and before both buck converters, so every milliamp the rover uses passes through it.
+* What it gives MARK 1:
+  * **Accurate battery %** by counting the mAh actually used (coulomb counting), corrected by voltage when the rover is idle.
+  * **Real runtime estimate** ("~38 min left at this pace") from the live current draw.
+  * **Live amps / watts** in the app.
+  * **Stall protection:** high current while the car isn't moving → cut the motors before the L298N or the motors overheat.
+* Powered from the ESP32's **3V3** pin. I²C address **0x40** (default, no solder jumpers bridged).
+* The 3 A fuse is below the INA219's 3.2 A limit, so the sensor is protected too.
 
 ### Breadboard and wires
 * The breadboard is for **bench tests only**. Its contacts are loose and can't carry motor current. Inside the car, use screw terminals, soldered joints and heat-shrink.
@@ -65,9 +77,12 @@ These pins are chosen because they are safe at boot (no strapping-pin trouble), 
 | **GPIO 13** (`D13`) | L298N **ENB** | Steering power (PWM) |
 | **GPIO 32** (`D32`) | L298N **IN3** | Steering direction |
 | **GPIO 33** (`D33`) | L298N **IN4** | Steering direction |
-| **GPIO 34** (`D34`) | Battery voltage divider midpoint | Battery sense (input-only, ADC1) |
+| **GPIO 21** (`D21`) | INA219 **SDA** | I²C data: current + pack voltage |
+| **GPIO 22** (`D22`) | INA219 **SCL** | I²C clock |
+| **3V3** | INA219 **VCC** | Sensor power (3.3 V logic) |
+| **GPIO 34** (`D34`) | Battery voltage divider midpoint *(optional backup)* | Backup battery sense if the INA219 fails (input-only, ADC1) |
 | **GPIO 2** | On-board blue LED | Status (blinks = AP up, solid = armed) |
-| **GND** | L298N GND, battery −, buck OUT− | **Common ground** (mandatory) |
+| **GND** | L298N GND, battery −, both buck OUT−, INA219 GND | **Common ground** (mandatory) |
 | **VIN** | Buck converter OUT+ (5.0 V) | Power from battery (Phase 4+) |
 
 **Truth table (per channel):**
@@ -119,17 +134,25 @@ Nothing else is connected.
 
 ### Phase 4: on battery (untethered)
 ```
- 18650 pack + ──► FUSE (3 A) ──► SWITCH ──┬──► L298N 12V
-                                          └──► BUCK IN+ ── BUCK OUT+ (5.0 V) ──► ESP32 VIN
- 18650 pack − ────────────────────────────┬──► L298N GND
-                                          ├──► BUCK IN− / OUT−
+ 18650 pack + ──► FUSE (3 A) ──► SWITCH ──► INA219 VIN+ ··shunt·· VIN− ──┐
+                                          ┌───────────────────────────────┘
+                                          ├──► MOTOR BUCK (XL4015) IN+ ── OUT+ (≈ 8.5 V) ──► L298N 12V
+                                          └──► LOGIC BUCK (LM2596/MP1584) IN+ ── OUT+ (5.0 V) ──► ESP32 VIN
+ 18650 pack − ────────────────────────────┬──► MOTOR BUCK IN− / OUT− ──► L298N GND
+                                          ├──► LOGIC BUCK IN− / OUT−
+                                          ├──► INA219 GND
                                           └──► ESP32 GND
 
- Battery sense:  pack+ (after switch) ──[100 kΩ]──┬──[22 kΩ]── GND
-                                                  └──► ESP32 D34
+ INA219:   VCC ◄── ESP32 3V3 · GND ── common GND · SDA ──► D21 · SCL ──► D22
+
+ Optional backup sense:  pack+ (after switch) ──[100 kΩ]──┬──[22 kΩ]── GND
+                                                          └──► ESP32 D34
 ```
-* **Set the buck to 5.0 V with a multimeter before connecting the ESP32.** (Turn the small brass screw on an LM2596/MP1584.)
-* With the buck converter in use, **remove the L298N 5V-EN jumper** and leave the L298N `5V` terminal unconnected. Then the only 5 V source is the buck.
+* **Set both bucks with a multimeter before connecting anything to their outputs.** Logic buck → **5.0 V**. Motor buck → stock motor voltage **+ ~1.5 V** for the L298N's internal loss (e.g. 7.4 V motors → **8.5–9 V**).
+* Two separate bucks: motor current spikes can't brown out (reset) the ESP32.
+* **Keep the L298N 5V-EN jumper fitted.** Its on-board regulator powers the L298N's own logic from the ~8.5 V motor supply. Leave the L298N `5V` terminal **unconnected**. Never join it to the logic buck's 5 V.
+* **INA219 direction matters:** current must flow **in at VIN+ and out at VIN−**. Reversed, it reads negative current.
+* Use the INA219's **screw terminal** (or thick wire soldered to VIN+/VIN−) for the pack current. Don't run the full current through its thin header pins or a breadboard.
 * Divider maths (3S): 12.6 V × 22 / 122 = **2.27 V** at the pin. That's safe, and it sits in the ESP32 ADC's accurate range. For a 2S pack use **100 kΩ + 47 kΩ** (8.4 V → 2.69 V).
 * When flashing over USB with the battery connected, **turn the switch off** first.
 
@@ -141,10 +164,12 @@ Nothing else is connected.
 
 | Option | Voltage | Pros | Cons |
 |---|---|---|---|
-| **3S (3 × 18650 in series)**, recommended with caps | 9.0–12.6 V | Uses all 3 cells; L298N's 2 V loss matters less; plenty of power | Too high for toy motors at 100% → firmware **caps PWM** to the motor's rated voltage; needs a 3S BMS + 12.6 V charger |
+| **3S (3 × 18650 in series) + motor buck**, ✅ chosen | 9.0–12.6 V pack → fixed ≈ 8.5 V to the L298N | Uses all 3 cells (~22 Wh); motors get a safe, **constant** voltage from a full pack to an empty one; 100% throttle is always safe | Needs a second buck converter, a 3S BMS and a 12.6 V charger |
 | **2S (2 cells)** | 6.0–8.4 V | Closer to stock motor voltage | After the L298N loss only ~4–6 V reaches the motors; sluggish when the cells are low |
 
-**Rule used in firmware:** effective motor voltage ≈ (pack voltage − 2 V) × PWM%. The *Full* mode cap is set so this stays ≤ about 1.2 × the stock battery voltage. Because the cap is computed from the measured voltage, it automatically allows more PWM as the pack drains.
+**Why a motor buck:** the buck converter fixes the voltage the motors can ever see, so the drive modes (Crawl 25% … Full 100%) are plain PWM percentages, with no voltage-dependent caps in firmware. Speed also stays the same as the pack drains, because the buck holds ≈ 8.5 V until the pack itself drops near 9.5–10 V.
+
+**Battery life:** the run time comes from the pack's energy, 3 × 7.4 Wh ≈ **22 Wh**. A buck converter is ~90% efficient. It doesn't add energy, but it wastes very little, and it keeps the motors in their safe range for the whole charge.
 
 ### Charging (in order of preference)
 1. **3S BMS board (e.g. HX-3S-FL25A) + 12.6 V CC/CV charger.** The pack stays wired in the car, and the BMS protects against over-charge, over-discharge and short circuit. ✅ Best.
@@ -175,16 +200,18 @@ Nothing else is connected.
 | Item | Why | Approx. |
 |---|---|---|
 | **Digital multimeter** | Measure voltages, set the buck converter, check polarity. Essential. | ₹500–1000 |
-| **Buck converter** (MP1584EN mini or LM2596 adjustable) | Clean 5 V for the ESP32 from the pack | ₹60–150 |
+| **Logic buck converter** (MP1584EN mini or LM2596 adjustable) | Clean 5 V for the ESP32 from the pack | ₹60–150 |
+| **Motor buck converter** (XL4015 5 A adjustable, CC/CV) | Steps the 12.6 V pack down to ≈ 8.5 V for the L298N + motors. Use 5 A or more: two drive motors spike at start-up | ₹150–300 |
 | **3S BMS 18650** (10–25 A) | Protects the pack | ₹100–250 |
 | **12.6 V 1–2 A Li-ion charger** (DC barrel) | Charges the 3S pack through the BMS | ₹250–500 |
 | **Rocker / slide switch** (≥ 3 A) | Main power switch | ₹20–50 |
 | **Inline fuse holder + 3 A fuses** | Short-circuit protection | ₹50–100 |
-| **Resistors 100 kΩ, 22 kΩ, 47 kΩ** (pack) | Battery voltage divider | ₹50 |
+| **INA219 module** (CJMCU-219 or similar, 0.1 Ω shunt) | Current, power, mAh used, accurate battery % and runtime. **Required for MARK 1** | ₹150–250 |
+| **Resistors 100 kΩ, 22 kΩ, 47 kΩ** (pack) | Optional backup voltage divider | ₹50 |
 | **20–22 AWG silicone wire** (red/black) | Power wiring | ₹100 |
 | **Heat-shrink assortment**, electrical tape | Insulation | ₹100 |
 | **Soldering iron kit** + solder | Permanent joints | ₹400–800 |
 | **XT30 or JST connectors** | Removable battery plug | ₹100 |
 | Nylon M3 standoffs, zip ties, foam tape | Mounting | ₹150 |
 
-Optional later: **INA219** current/voltage sensor (accurate runtime estimate), a **second L298N or a TB6612FNG** (one channel per motor).
+Optional later: a MOSFET driver (TB6612FNG / DRV8871) if the L298N runs too hot with both drive motors on channel A.
